@@ -1109,21 +1109,41 @@ export default function UnifiedCseaCopterCodeApp() {
     return matchesSearch && matchesEvent && matchesDept && matchesCollege && matchesYear && matchesSection;
   });
 
+  // Build a map of studentId/registerNo -> eventName for fast event-based student filtering
+  const studentEventMap = new Map<string, string>();
+  historyCerts.forEach(c => {
+    if (c.studentId && c.eventName) studentEventMap.set(c.studentId, c.eventName);
+  });
+
   // Filtered Students
   const filteredStudents = registrations.filter(s => {
     const q = regQuery.toLowerCase();
-    const matchesSearch = s.name.toLowerCase().includes(q) ||
-                          s.registerNo.toLowerCase().includes(q) ||
-                          s.email.toLowerCase().includes(q) ||
-                          s.section.toLowerCase().includes(q) ||
-                          s.collegeName.toLowerCase().includes(q);
-    
-    const matchesDept = studentDeptFilter === 'All Departments' || s.department.toLowerCase() === studentDeptFilter.toLowerCase();
-    const matchesCollege = studentCollegeFilter === 'All Colleges' || s.collegeName.toLowerCase().includes(studentCollegeFilter.toLowerCase());
-    const matchesYear = studentYearFilter === 'All Years' || s.yearOfStudy.toLowerCase() === studentYearFilter.toLowerCase();
-    const matchesSec = studentSectionFilter === 'All Sections' || s.section.toLowerCase() === studentSectionFilter.replace('Section ', '').toLowerCase();
-    
-    return matchesSearch && matchesDept && matchesCollege && matchesYear && matchesSec;
+    const section = (s.section || '').toLowerCase();
+    const collegeName = (s.collegeName || '').toLowerCase();
+    const department = (s.department || '').toLowerCase();
+    const yearOfStudy = (s.yearOfStudy || '').toLowerCase();
+    const name = (s.name || '').toLowerCase();
+    const registerNo = (s.registerNo || '').toLowerCase();
+    const email = (s.email || '').toLowerCase();
+
+    const matchesSearch = !q ||
+      name.includes(q) ||
+      registerNo.includes(q) ||
+      email.includes(q) ||
+      section.includes(q) ||
+      collegeName.includes(q);
+
+    const matchesDept = studentDeptFilter === 'All Departments' || department === studentDeptFilter.toLowerCase();
+    const matchesCollege = studentCollegeFilter === 'All Colleges' || collegeName.includes(studentCollegeFilter.toLowerCase());
+    const matchesYear = studentYearFilter === 'All Years' || yearOfStudy === studentYearFilter.toLowerCase();
+    const matchesSec = studentSectionFilter === 'All Sections' || section === studentSectionFilter.replace('Section ', '').toLowerCase();
+
+    // Event filter: look up which event this student participated in via their certificate
+    const studentEventName = studentEventMap.get(s.registerNo) || studentEventMap.get(s.id) || '';
+    const matchesEvent = studentEventFilter === 'All Events' ||
+      studentEventName.toLowerCase().includes(studentEventFilter.toLowerCase());
+
+    return matchesSearch && matchesDept && matchesCollege && matchesYear && matchesSec && matchesEvent;
   });
 
   // Toggle select all certs

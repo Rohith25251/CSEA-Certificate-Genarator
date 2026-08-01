@@ -4,8 +4,10 @@ import re
 import uuid
 import base64
 import tempfile
+import datetime
 import pandas as pd
 from pptx import Presentation
+
 
 # Attempt win32com and pythoncom imports for native PowerPoint COM rendering on Windows
 has_win32com = False
@@ -97,6 +99,28 @@ def extract_placeholders_from_pptx(pptx_bytes: bytes):
 
 from pptx.dml.color import RGBColor
 
+def format_date_to_dd_mm_yyyy(val) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, (datetime.date, datetime.datetime)):
+        return val.strftime("%d\u2011%m\u2011%Y")
+    
+    val_str = str(val).strip()
+    
+    # Check if format is yyyy-mm-dd (with optional T... or time)
+    match1 = re.match(r'^(\d{4})[-/](\d{2})[-/](\d{2})(?:\s+.*|T.*)?$', val_str)
+    if match1:
+        y, m, d = match1.groups()
+        return f"{d}\u2011{m}\u2011{y}"
+        
+    # Check if format is already dd-mm-yyyy or dd/mm/yyyy
+    match2 = re.match(r'^(\d{2})[-/](\d{2})[-/](\d{4})$', val_str)
+    if match2:
+        d, m, y = match2.groups()
+        return f"{d}\u2011{m}\u2011{y}"
+        
+    return val_str
+
 def build_dynamic_replacements(row: dict, extra: dict = None) -> dict:
     """
     Builds a universal dynamic replacement dictionary from ANY arbitrary Excel column header,
@@ -162,7 +186,13 @@ def build_dynamic_replacements(row: dict, extra: dict = None) -> dict:
             if alias not in rep:
                 rep[alias] = std_email
 
+    # 4. Format any date-like values in the replacements dictionary to dd-mm-yyyy with non-breaking hyphens
+    for k, v in list(rep.items()):
+        if isinstance(k, str) and ('date' in k.lower() or k.lower() == 'date'):
+            rep[k] = format_date_to_dd_mm_yyyy(v)
+
     return rep
+
 
 def replace_tokens_in_pptx_slide(slide, replacements: dict):
     """Replaces <<Placeholder>> tokens inside PowerPoint slides while preserving 100% of font family, font size, bold, italic, and colors."""
@@ -174,6 +204,22 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
             shape.text_frame.word_wrap = True
         except Exception:
             pass
+
+        # Normalize fonts and disable underlines slide-wide
+        for p in shape.text_frame.paragraphs:
+            for r in p.runs:
+                if r.font:
+                    r.font.underline = False
+                    if r.font.name:
+                        name_lower = r.font.name.lower()
+                        if "times" in name_lower:
+                            r.font.name = "Times New Roman"
+                            if "bold" in name_lower:
+                                r.font.bold = True
+                        elif "playfair" in name_lower:
+                            r.font.name = "Playfair Display"
+                            if "bold" in name_lower:
+                                r.font.bold = True
 
         for p in shape.text_frame.paragraphs:
             full_text = p.text
@@ -190,7 +236,12 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                         val = replacements[k]
                         break
                 if val is not None:
-                    matches.append((m.start(), m.end(), str(val)))
+                    val_str = str(val)
+                    # If the placeholder is followed immediately by an alphanumeric character (like "o" in "organized"),
+                    # append a space to prevent breaking words and line wraps.
+                    if m.end() < len(full_text) and full_text[m.end()].isalnum():
+                        val_str += " "
+                    matches.append((m.start(), m.end(), val_str))
 
             if not matches:
                 continue
