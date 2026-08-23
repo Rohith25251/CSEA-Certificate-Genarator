@@ -194,6 +194,8 @@ const getTodayFormatted = () => {
   return `${pad(today.getDate())}-${pad(today.getMonth() + 1)}-${today.getFullYear()}`;
 };
 
+const PYTHON_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 export default function InvitationTab() {
   const [stage, setStage] = useState<number>(1);
   
@@ -338,7 +340,7 @@ export default function InvitationTab() {
 
       if (error) {
         // Fallback to local python API
-        const res = await fetch('http://localhost:8000/api/invitations/history');
+        const res = await fetch(`${PYTHON_API_URL}/api/invitations/history`);
         const apiData = await res.json();
         if (apiData.status === 'success') {
           setHistory(apiData.data);
@@ -372,7 +374,7 @@ export default function InvitationTab() {
         Date: new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
       };
 
-      const response = await fetch('http://localhost:8000/api/invitations/send-batch', {
+      const response = await fetch(`${PYTHON_API_URL}/api/invitations/send-batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -593,7 +595,7 @@ export default function InvitationTab() {
 
       try {
         // We call the server endpoint with a single row to stream progress to client
-        const response = await fetch('http://localhost:8000/api/invitations/send-batch', {
+        const response = await fetch(`${PYTHON_API_URL}/api/invitations/send-batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

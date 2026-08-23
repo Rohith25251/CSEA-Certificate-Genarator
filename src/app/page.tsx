@@ -67,7 +67,7 @@ import {
 
 import InvitationTab from './invitations/InvitationTab';
 
-const PYTHON_API_URL = 'http://localhost:8000';
+const PYTHON_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const extractStudentEmail = (row: any, rollNo: string = ''): string => {
   if (!row) return rollNo ? `${rollNo.toLowerCase()}@kongu.edu` : '';
