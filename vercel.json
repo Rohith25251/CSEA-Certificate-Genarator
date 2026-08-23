@@ -10,10 +10,19 @@
   },
   "rewrites": [
     {
-      "source": "/api/backend(/(.*))?",
+      "source": "/api/backend/(.*)",
       "destination": {
         "type": "service",
-        "service": "backend"
+        "service": "backend",
+        "path": "/api/$1"
+      }
+    },
+    {
+      "source": "/api/backend",
+      "destination": {
+        "type": "service",
+        "service": "backend",
+        "path": "/api"
       }
     },
     {
