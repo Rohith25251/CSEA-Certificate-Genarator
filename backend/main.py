@@ -65,8 +65,15 @@ class SinglePreviewRequest(BaseModel):
     issue_date: str
     row: Dict[str, Any]
 
-OUTPUT_CERTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'generated_pdfs'))
-TEMPLATES_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'event_templates'))
+is_vercel = os.environ.get('VERCEL') is not None or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
+
+if is_vercel:
+    OUTPUT_CERTS_DIR = os.path.join('/tmp', 'generated_pdfs')
+    TEMPLATES_BASE_DIR = os.path.join('/tmp', 'event_templates')
+else:
+    OUTPUT_CERTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'generated_pdfs'))
+    TEMPLATES_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'event_templates'))
+
 os.makedirs(OUTPUT_CERTS_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_BASE_DIR, exist_ok=True)
 

@@ -147,7 +147,11 @@ def download_latest_template_from_supabase(event_id: str = None) -> str:
         target_folders.append(str(event_id).strip())
     target_folders.append("")  # Root folder
 
-    save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'uploaded_templates'))
+    is_vercel = os.environ.get('VERCEL') is not None or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
+    if is_vercel:
+        save_dir = os.path.join('/tmp', 'uploaded_templates')
+    else:
+        save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'uploaded_templates'))
     os.makedirs(save_dir, exist_ok=True)
 
     for folder in target_folders:
