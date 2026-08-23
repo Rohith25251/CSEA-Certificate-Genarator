@@ -65,6 +65,8 @@ import {
   Send
 } from 'lucide-react';
 
+import InvitationTab from './invitations/InvitationTab';
+
 const PYTHON_API_URL = 'http://localhost:8000';
 
 const extractStudentEmail = (row: any, rollNo: string = ''): string => {
@@ -99,8 +101,8 @@ const getShortDept = (dept?: string) => {
 };
 
 export default function UnifiedCseaCopterCodeApp() {
-  // Navigation Tabs: "generator" | "history" | "registration" | "profile"
-  const [activeTab, setActiveTab] = useState<'generator' | 'history' | 'registration' | 'profile'>('generator');
+  // Navigation Tabs: "generator" | "invitation" | "history" | "registration" | "profile"
+  const [activeTab, setActiveTab] = useState<'generator' | 'invitation' | 'history' | 'registration' | 'profile'>('generator');
   
   // Auth state with Supabase (Unauthenticated by default)
   const [session, setSession] = useState<boolean>(false);
@@ -1169,22 +1171,22 @@ export default function UnifiedCseaCopterCodeApp() {
   // ========================================================
   if (isAuthChecking) {
     return (
-      <div className="fixed inset-0 z-50 bg-[#030712] flex items-center justify-center p-4">
-        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 max-w-sm w-full shadow-2xl flex flex-col items-center space-y-6 text-center">
+      <div className="fixed inset-0 z-50 bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white border border-slate-200/80 rounded-3xl p-10 max-w-sm w-full shadow-xl shadow-slate-200/40 flex flex-col items-center space-y-6 text-center">
           
-          <div className="w-20 h-20 bg-white border-2 border-indigo-600 shadow-2xl p-1.5 rounded-3xl flex items-center justify-center animate-pulse">
+          <div className="w-20 h-20 bg-white border-2 border-indigo-600 shadow-lg p-1.5 rounded-3xl flex items-center justify-center animate-pulse">
             <img src={useCustomLogo && customLogoUrl ? customLogoUrl : "/csea_logo.png"} alt="CSEA" className="w-full h-full object-contain" />
           </div>
 
           <div className="relative w-10 h-10 flex items-center justify-center">
-            <div className="absolute inset-0 rounded-full border-2 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
-            <div className="absolute inset-1.5 rounded-full border-2 border-blue-400/20 border-b-blue-400 animate-[spin_1.5s_linear_infinite_reverse]"></div>
+            <div className="absolute inset-0 rounded-full border-2 border-indigo-500/20 border-t-indigo-600 animate-spin"></div>
+            <div className="absolute inset-1.5 rounded-full border-2 border-blue-500/20 border-b-blue-500 animate-[spin_1.5s_linear_infinite_reverse]"></div>
           </div>
 
           <div>
-            <h2 className="text-lg font-black text-white tracking-tight">CSEA Certificate Hub</h2>
-            <p className="text-xs text-indigo-300 font-extrabold tracking-widest uppercase mt-2 animate-pulse flex items-center justify-center space-x-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <h2 className="text-lg font-black text-slate-800 tracking-tight">CSEA Certificate Hub</h2>
+            <p className="text-xs text-indigo-600 font-extrabold tracking-widest uppercase mt-2 animate-pulse flex items-center justify-center space-x-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
               <span>Verifying session...</span>
             </p>
           </div>
@@ -1338,6 +1340,7 @@ export default function UnifiedCseaCopterCodeApp() {
             <nav className="flex items-center bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 space-x-1">
               {[
                 { id: 'generator', label: 'Generator', icon: LayoutDashboard },
+                { id: 'invitation', label: 'Invitations', icon: Mail },
                 { id: 'history', label: 'Certificates', icon: FileText },
                 { id: 'registration', label: 'Student Directory', icon: Database },
                 { id: 'profile', label: 'Profile', icon: User },
@@ -1395,6 +1398,11 @@ export default function UnifiedCseaCopterCodeApp() {
               If Supabase schema access is restricted, run the SQL script in <code className="bg-amber-100 px-2 py-0.5 rounded font-mono font-bold">supabase_setup.sql</code> in your Supabase SQL Editor.
             </p>
           </div>
+        )}
+
+        {/* TAB 0: INVITATION */}
+        {activeTab === 'invitation' && (
+          <InvitationTab />
         )}
 
         {/* TAB 1: GENERATOR */}

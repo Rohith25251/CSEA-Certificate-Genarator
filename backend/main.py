@@ -537,6 +537,202 @@ def send_batch_emails(items: List[SendEmailRequest]):
         "results": results
     }
 
+def replace_placeholders(html_template: str, row: Dict[str, Any]) -> str:
+    """
+    Replaces both {{placeholder}} and <<placeholder>> in html_template
+    with values from the row dictionary (case-insensitive).
+    """
+    rendered = html_template
+    for k, v in row.items():
+        val = str(v) if v is not None else ""
+        # Escape k for regex safety
+        escaped_k = re.escape(str(k).strip())
+        pattern = r"(<<\s*" + escaped_k + r"\s*>>|\{\{\s*" + escaped_k + r"\s*\}\})"
+        rendered = re.sub(pattern, val, rendered, flags=re.IGNORECASE)
+    return rendered
+
+class InvitationPreviewRequest(BaseModel):
+    html_template: str
+    row: Dict[str, Any]
+
+class InvitationBatchRequest(BaseModel):
+    subject: str
+    event_name: Optional[str] = "Event"
+    html_template: str
+    rows: List[Dict[str, Any]]
+
+@app.post("/api/invitations/preview")
+def preview_invitation(req: InvitationPreviewRequest):
+    try:
+        row = req.row.copy()
+        recipient_name = None
+        recipient_email = None
+
+        name_keys = {'name', 'recipient name', 'recipient_name', 'student name', 'student_name', 'full name', 'fullname', 'receiver name', 'receiver_name'}
+        email_keys = {'email', 'email address', 'email_address', 'recipient email', 'recipient_email', 'student email', 'student_email', 'mail', 'receiver email', 'receiver_email'}
+
+        for k, v in row.items():
+            k_lower = str(k).lower().strip()
+            if k_lower in name_keys:
+                recipient_name = str(v).strip()
+            if k_lower in email_keys:
+                recipient_email = str(v).strip()
+
+        if not recipient_name:
+            for k, v in row.items():
+                if 'name' in str(k).lower():
+                    recipient_name = str(v).strip()
+                    break
+        if not recipient_email:
+            for k, v in row.items():
+                if 'mail' in str(k).lower():
+                    recipient_email = str(v).strip()
+                    break
+
+        if not recipient_name:
+            recipient_name = "Guest"
+
+        row['Name'] = recipient_name
+        row['name'] = recipient_name
+        row['recipient_name'] = recipient_name
+        if recipient_email:
+            row['Email'] = recipient_email
+            row['email'] = recipient_email
+            row['recipient_email'] = recipient_email
+
+        row_keys_lower = {str(k).lower().strip() for k in row.keys()}
+        if 'eventname' not in row_keys_lower and 'event_name' not in row_keys_lower and 'event' not in row_keys_lower:
+            row['EventName'] = "Event"
+            row['Event_Name'] = "Event"
+            row['Event'] = "Event"
+        if 'date' not in row_keys_lower:
+            row['Date'] = datetime.date.today().strftime('%d-%b-%Y')
+
+        rendered = replace_placeholders(req.html_template, row)
+        return {"status": "success", "html": rendered}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/invitations/send-batch")
+def send_batch_invitations(req: InvitationBatchRequest):
+    results = []
+    db_records = []
+    from mailer import send_html_email
+
+    for idx, row in enumerate(req.rows):
+        # Dynamically search for email and name headers
+        recipient_name = None
+        recipient_email = None
+
+        name_keys = {'name', 'recipient name', 'recipient_name', 'student name', 'student_name', 'full name', 'fullname', 'receiver name', 'receiver_name'}
+        email_keys = {'email', 'email address', 'email_address', 'recipient email', 'recipient_email', 'student email', 'student_email', 'mail', 'receiver email', 'receiver_email'}
+
+        # 1. Exact match keys
+        for k, v in row.items():
+            k_lower = str(k).lower().strip()
+            if k_lower in name_keys:
+                recipient_name = str(v).strip()
+            if k_lower in email_keys:
+                recipient_email = str(v).strip()
+
+        # 2. Fallback search (contains substring)
+        if not recipient_name:
+            for k, v in row.items():
+                if 'name' in str(k).lower():
+                    recipient_name = str(v).strip()
+                    break
+        if not recipient_email:
+            for k, v in row.items():
+                if 'mail' in str(k).lower():
+                    recipient_email = str(v).strip()
+                    break
+
+        # 3. Final defaults
+        if not recipient_name:
+            recipient_name = "Guest"
+        if not recipient_email or "@" not in recipient_email:
+            # Skip records without valid emails
+            results.append({
+                "email": str(recipient_email or "unknown"),
+                "name": recipient_name,
+                "status": "failed",
+                "error": "Missing or invalid email address"
+            })
+            continue
+
+        # Render HTML with enriched resolved aliases
+        row_copy = row.copy()
+        row_copy['Name'] = recipient_name
+        row_copy['name'] = recipient_name
+        row_copy['recipient_name'] = recipient_name
+        row_copy['Email'] = recipient_email
+        row_copy['email'] = recipient_email
+        row_copy['recipient_email'] = recipient_email
+
+        row_keys_lower = {str(k).lower().strip() for k in row.keys()}
+        if 'eventname' not in row_keys_lower and 'event_name' not in row_keys_lower and 'event' not in row_keys_lower:
+            row_copy['EventName'] = req.event_name
+            row_copy['Event_Name'] = req.event_name
+            row_copy['Event'] = req.event_name
+        if 'date' not in row_keys_lower:
+            row_copy['Date'] = datetime.date.today().strftime('%d-%b-%Y')
+
+        rendered_html = replace_placeholders(req.html_template, row_copy)
+
+        # Dispatch HTML Email
+        res = send_html_email(
+            recipient_email=recipient_email,
+            subject=req.subject,
+            html_content=rendered_html
+        )
+
+        status = "sent" if res.get("success") else "failed"
+        err_msg = res.get("error") if status == "failed" else None
+
+        results.append({
+            "email": recipient_email,
+            "name": recipient_name,
+            "status": status,
+            "error": err_msg
+        })
+
+        resolved_event_name = row_copy.get('EventName') or req.event_name
+        db_records.append({
+            "recipient_name": recipient_name,
+            "recipient_email": recipient_email,
+            "event_name": resolved_event_name,
+            "subject": req.subject,
+            "status": status,
+            "error_message": err_msg,
+            "custom_data": row
+        })
+
+    # Record in Supabase DB if client is active
+    if db_records and supabase:
+        try:
+            supabase.table('invitation').insert(db_records).execute()
+        except Exception as e:
+            print(f"[Supabase] Invitation DB logging error: {e}")
+
+    sent_count = sum(1 for r in results if r["status"] == "sent")
+    return {
+        "status": "success",
+        "total": len(req.rows),
+        "sent": sent_count,
+        "results": results
+    }
+
+@app.get("/api/invitations/history")
+def get_invitations_history():
+    if not supabase:
+        return {"status": "error", "message": "Supabase not configured", "data": []}
+    try:
+        res = supabase.table('invitation').select('*').order('created_at', desc=True).execute()
+        return {"status": "success", "data": res.data or []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

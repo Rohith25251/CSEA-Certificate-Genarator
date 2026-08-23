@@ -280,3 +280,39 @@ def send_certificate_email(
     except Exception as e:
         print(f"[SMTP Error] Failed to send email to {recipient_email}: {e}")
         return {"success": False, "email": recipient_email, "error": str(e)}
+
+def send_html_email(
+    recipient_email: str,
+    subject: str,
+    html_content: str
+) -> dict:
+    """
+    Sends pure HTML email via SMTP using the project SMTP configuration.
+    """
+    if not recipient_email or "@" not in recipient_email:
+        return {"success": False, "error": "Invalid recipient email address"}
+
+    cfg = get_smtp_config()
+    msg = EmailMessage()
+    msg['From'] = cfg["from"]
+    msg['To'] = recipient_email
+    msg['Subject'] = subject
+
+    msg.set_content(html_content, subtype='html')
+
+    try:
+        if cfg["pass"]:
+            server = smtplib.SMTP(cfg["host"], cfg["port"])
+            server.starttls()
+            server.login(cfg["user"], cfg["pass"])
+            server.send_message(msg)
+            server.quit()
+            print(f"[SMTP] Successfully dispatched HTML invitation to {recipient_email}")
+        else:
+            print(f"[SMTP Simulation] HTML email prepared for {recipient_email} (Set SMTP_PASS in .env.local to deliver live)")
+
+        return {"success": True, "email": recipient_email, "simulated": not bool(cfg["pass"])}
+    except Exception as e:
+        print(f"[SMTP Error] Failed to send HTML email to {recipient_email}: {e}")
+        return {"success": False, "email": recipient_email, "error": str(e)}
+

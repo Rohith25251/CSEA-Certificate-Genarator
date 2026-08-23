@@ -62,7 +62,7 @@ export function parseExcelWorkbook(buffer: ArrayBuffer, fileName?: string): Pars
 export function formatCellValue(val: any): string {
   if (val === null || val === undefined) return '';
   if (val instanceof Date) {
-    return val.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    return val.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
   return String(val).trim();
 }
