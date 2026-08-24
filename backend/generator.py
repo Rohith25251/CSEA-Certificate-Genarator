@@ -281,6 +281,16 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                     r_last = p.runs[end_run_idx]
                     r_last.text = r_last.text[end_char_offset + 1:]
 
+def replace_html_tokens(html_content: str, replacements: dict) -> str:
+    """Replaces <<placeholder>> and {{placeholder}} in HTML content with replacement values (case-insensitive)."""
+    rendered = html_content
+    for k, v in replacements.items():
+        val = str(v) if v is not None else ""
+        escaped_k = re.escape(str(k).strip())
+        pattern = r"(<<\s*" + escaped_k + r"\s*>>|\{\{\s*" + escaped_k + r"\s*\}\})"
+        rendered = re.sub(pattern, val, rendered, flags=re.IGNORECASE)
+    return rendered
+
 def generate_single_native_pdf(pptx_template_path: str, replacements: dict, output_pdf_path: str) -> bool:
     """Modifies PPTX template with student replacements and converts directly to PDF using PowerPoint COM with CoInitialize."""
     target_pptx = pptx_template_path if (pptx_template_path and os.path.exists(pptx_template_path)) else get_active_pptx_template_path()
@@ -316,8 +326,38 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
             print(f"[Generator] Successfully rendered native PowerPoint PDF at {output_pdf_path}")
             return True
         else:
-            print("[Generator] win32com unavailable. Unable to render native PDF.")
-            return False
+            print("[Generator] win32com unavailable. Falling back to HTML-to-PDF rendering using xhtml2pdf.")
+            try:
+                from pptx_converter import convert_pptx_to_html_template
+                from xhtml2pdf import pisa
+                
+                # 1. Read the temporary modified PPTX bytes
+                with open(temp_pptx, "rb") as f:
+                    pptx_bytes = f.read()
+                
+                # 2. Convert PPTX to HTML template
+                html_template = convert_pptx_to_html_template(pptx_bytes)
+                if not html_template:
+                    print("[Generator] Failed to convert PPTX template to HTML.")
+                    return False
+                
+                # 3. Double-check replacing any remaining tokens
+                rendered_html = replace_html_tokens(html_template, replacements)
+                
+                # 4. Generate PDF using xhtml2pdf
+                os.makedirs(os.path.dirname(os.path.abspath(output_pdf_path)), exist_ok=True)
+                with open(output_pdf_path, "wb") as result_file:
+                    pisa_status = pisa.CreatePDF(rendered_html, dest=result_file)
+                
+                if pisa_status.err:
+                    print(f"[Generator] xhtml2pdf rendering failed: {pisa_status.err}")
+                    return False
+                
+                print(f"[Generator] Successfully rendered fallback PDF using xhtml2pdf at {output_pdf_path}")
+                return True
+            except Exception as fallback_err:
+                print(f"[Generator] Fallback HTML-to-PDF rendering failed: {fallback_err}")
+                return False
     except Exception as e:
         print(f"[Generator] Native PPTX to PDF error: {e}")
         if co_initialized and pythoncom_lib:
