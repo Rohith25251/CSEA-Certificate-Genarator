@@ -326,37 +326,198 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
             print(f"[Generator] Successfully rendered native PowerPoint PDF at {output_pdf_path}")
             return True
         else:
-            print("[Generator] win32com unavailable. Falling back to HTML-to-PDF rendering using xhtml2pdf.")
+            print("[Generator] win32com unavailable. Falling back to high-fidelity ReportLab PDF rendering.")
             try:
-                from pptx_converter import convert_pptx_to_html_template
-                from xhtml2pdf import pisa
-                
-                # 1. Read the temporary modified PPTX bytes
-                with open(temp_pptx, "rb") as f:
-                    pptx_bytes = f.read()
-                
-                # 2. Convert PPTX to HTML template
-                html_template = convert_pptx_to_html_template(pptx_bytes)
-                if not html_template:
-                    print("[Generator] Failed to convert PPTX template to HTML.")
-                    return False
-                
-                # 3. Double-check replacing any remaining tokens
-                rendered_html = replace_html_tokens(html_template, replacements)
-                
-                # 4. Generate PDF using xhtml2pdf
+                import io
+                from pptx.enum.shapes import MSO_SHAPE_TYPE
+                from pptx.enum.text import PP_ALIGN
+                from reportlab.pdfgen import canvas
+                from reportlab.lib.pagesizes import A4, landscape
+                from reportlab.platypus import Paragraph, Frame
+                from reportlab.lib.styles import ParagraphStyle
+                from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
+                from reportlab.lib.utils import ImageReader
+                from reportlab.lib.colors import HexColor
+                from svglib.svglib import svg2rlg
+
+                # 1. Clean replacements to remove any Unicode non-breaking hyphens
+                cleaned_replacements = {}
+                for k, v in replacements.items():
+                    if isinstance(v, str):
+                        cleaned_replacements[k] = v.replace('\u2011', '-')
+                    else:
+                        cleaned_replacements[k] = v
+
+                # Use the modified temporary PPTX
+                prs_temp = Presentation(temp_pptx)
+                slide_temp = prs_temp.slides[0]
+
+                # A4 Page dimensions in points
+                A4_w, A4_h = landscape(A4) # 841.89 x 595.27
+
                 os.makedirs(os.path.dirname(os.path.abspath(output_pdf_path)), exist_ok=True)
-                with open(output_pdf_path, "wb") as result_file:
-                    pisa_status = pisa.CreatePDF(rendered_html, dest=result_file)
-                
-                if pisa_status.err:
-                    print(f"[Generator] xhtml2pdf rendering failed: {pisa_status.err}")
-                    return False
-                
-                print(f"[Generator] Successfully rendered fallback PDF using xhtml2pdf at {output_pdf_path}")
+                pdf_canvas = canvas.Canvas(output_pdf_path, pagesize=(A4_w, A4_h))
+
+                slide_w = prs_temp.slide_width
+                slide_h = prs_temp.slide_height
+                scale_x = A4_w / slide_w
+                scale_y = A4_h / slide_h
+
+                for shape_idx, shape in enumerate(slide_temp.shapes):
+                    x = shape.left * scale_x
+                    y = A4_h - (shape.top + shape.height) * scale_y
+                    w = shape.width * scale_x
+                    h = shape.height * scale_y
+
+                    # Picture shape OR shape with picture fill
+                    has_picture_fill = False
+                    img_bytes = None
+                    is_svg = False
+                    if hasattr(shape, 'fill') and shape.fill and shape.fill.type == 6: # MSO_FILL.PICTURE
+                        try:
+                            # Use universal xpath to match r:embed on standard blips or svgBlips
+                            rIds = shape.fill._xPr.xpath('.//@r:embed')
+                            rId = rIds[0] if rIds else None
+                            if rId:
+                                part = slide_temp._part.related_part(rId)
+                                img_bytes = part.blob
+                                has_picture_fill = True
+                                if hasattr(part, 'partname') and str(part.partname).lower().endswith('.svg'):
+                                    is_svg = True
+                                elif img_bytes.startswith(b'<svg') or img_bytes.startswith(b'<?xml') or b'<svg' in img_bytes[:200]:
+                                    is_svg = True
+                        except Exception:
+                            pass
+
+                    if shape.shape_type == MSO_SHAPE_TYPE.PICTURE or has_picture_fill:
+                        try:
+                            if not img_bytes and shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                                img_bytes = shape.image.blob
+                                if hasattr(shape.image, 'filename') and str(shape.image.filename).lower().endswith('.svg'):
+                                    is_svg = True
+                            
+                            if img_bytes:
+                                if is_svg:
+                                    drawing = svg2rlg(io.BytesIO(img_bytes))
+                                    sx = w / drawing.width
+                                    sy = h / drawing.height
+                                    drawing.scale(sx, sy)
+                                    drawing.drawOn(pdf_canvas, x, y)
+                                else:
+                                    img_io = io.BytesIO(img_bytes)
+                                    img_reader = ImageReader(img_io)
+                                    pdf_canvas.drawImage(img_reader, x, y, w, h, mask='auto')
+                        except Exception as img_err:
+                            print(f"[Generator] Fallback error rendering shape [{shape_idx}]: {img_err}")
+
+                    # AutoShape line divider (height is 0)
+                    elif shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and shape.height == 0:
+                        try:
+                            if shape.line and shape.line.color and hasattr(shape.line.color, 'rgb') and shape.line.color.rgb:
+                                rgb = shape.line.color.rgb
+                                color_hex = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+                                lw = (shape.line.width / 12700.0) if (shape.line.width) else 1.0
+                                
+                                pdf_canvas.setStrokeColor(HexColor(color_hex))
+                                pdf_canvas.setLineWidth(lw)
+                                pdf_canvas.line(x, y + h, x + w, y + h)
+                        except Exception:
+                            pass
+
+                    # Text Box
+                    if shape.has_text_frame:
+                        try:
+                            story = []
+                            has_text = False
+
+                            for paragraph in shape.text_frame.paragraphs:
+                                p_text = ""
+                                max_font_size = 12
+
+                                for run in paragraph.runs:
+                                    text = run.text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                                    text = text.replace('\u2011', '-')
+                                    if not text.strip():
+                                        p_text += text
+                                        continue
+
+                                    has_text = True
+                                    style_start = ""
+                                    style_end = ""
+
+                                    if run.font.bold:
+                                        style_start += "<b>"
+                                        style_end = "</b>" + style_end
+                                    if run.font.italic:
+                                        style_start += "<i>"
+                                        style_end = "</i>" + style_end
+
+                                    font_name = run.font.name or "Helvetica"
+                                    if "times" in font_name.lower() or "playfair" in font_name.lower():
+                                        if run.font.bold and run.font.italic:
+                                            rl_font = "Times-BoldItalic"
+                                        elif run.font.bold:
+                                            rl_font = "Times-Bold"
+                                        elif run.font.italic:
+                                            rl_font = "Times-Italic"
+                                        else:
+                                            rl_font = "Times-Roman"
+                                    else:
+                                        if run.font.bold and run.font.italic:
+                                            rl_font = "Helvetica-BoldOblique"
+                                        elif run.font.bold:
+                                            rl_font = "Helvetica-Bold"
+                                        elif run.font.italic:
+                                            rl_font = "Helvetica-Oblique"
+                                        else:
+                                            rl_font = "Helvetica"
+
+                                    size_pt = run.font.size.pt if (run.font.size and hasattr(run.font.size, 'pt')) else 14
+                                    if size_pt > max_font_size:
+                                        max_font_size = size_pt
+
+                                    color_hex = "#000000"
+                                    try:
+                                        if run.font.color and run.font.color.type == 1:
+                                            rgb = run.font.color.rgb
+                                            color_hex = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+                                    except Exception:
+                                        pass
+
+                                    style_start += f'<font name="{rl_font}" size="{size_pt:.1f}" color="{color_hex}">'
+                                    style_end = "</font>" + style_end
+
+                                    p_text += f"{style_start}{text}{style_end}"
+
+                                if has_text:
+                                    align = TA_LEFT
+                                    if paragraph.alignment == PP_ALIGN.CENTER:
+                                        align = TA_CENTER
+                                    elif paragraph.alignment == PP_ALIGN.RIGHT:
+                                        align = TA_RIGHT
+                                    elif paragraph.alignment == PP_ALIGN.JUSTIFY:
+                                        align = TA_JUSTIFY
+
+                                    leading = max_font_size * 1.25
+                                    p_style = ParagraphStyle(
+                                        name=f"style_{uuid.uuid4().hex[:6]}",
+                                        alignment=align,
+                                        leading=leading
+                                    )
+                                    story.append(Paragraph(p_text, p_style))
+
+                            if story:
+                                f = Frame(x, y, w, h, leftPadding=2, rightPadding=2, topPadding=2, bottomPadding=2, id=None)
+                                f.addFromList(story, pdf_canvas)
+                        except Exception as txt_err:
+                            print(f"[Generator] Fallback error rendering text shape [{shape_idx}]: {txt_err}")
+
+                pdf_canvas.showPage()
+                pdf_canvas.save()
+                print(f"[Generator] Successfully rendered high-fidelity fallback PDF using ReportLab at {output_pdf_path}")
                 return True
             except Exception as fallback_err:
-                print(f"[Generator] Fallback HTML-to-PDF rendering failed: {fallback_err}")
+                print(f"[Generator] Fallback ReportLab rendering failed: {fallback_err}")
                 return False
     except Exception as e:
         print(f"[Generator] Native PPTX to PDF error: {e}")
