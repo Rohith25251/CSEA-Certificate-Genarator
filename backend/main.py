@@ -119,6 +119,8 @@ def extract_email_from_row(r: dict, roll_no: str) -> str:
     return f"{roll_no.lower()}@kongu.edu"
 
 @app.get("/")
+@app.get("/api")
+@app.get("/api/")
 def read_root():
     return {
         "status": "online",

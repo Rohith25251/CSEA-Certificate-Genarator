@@ -18,7 +18,8 @@ try:
     pythoncom_lib = pythoncom
     has_win32com = True
 except Exception as err:
-    print(f"[Generator] win32com/pythoncom import notice: {err}")
+    if os.name == 'nt':
+        print(f"[Generator] win32com/pythoncom import notice: {err}")
     has_win32com = False
 
 # Attempt PyMuPDF for PDF page rasterization
