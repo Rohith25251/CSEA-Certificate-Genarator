@@ -29,10 +29,14 @@ from generator import (
 )
 from mailer import send_certificate_email
 
+is_vercel = os.environ.get('VERCEL') is not None or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
+root_path = "/api/backend" if is_vercel else ""
+
 app = FastAPI(
     title="CSEA Certificate Generator Python API",
     description="Native PowerPoint PDF Generation Engine & Supabase DB Sync API",
-    version="1.0.0"
+    version="1.0.0",
+    root_path=root_path
 )
 
 # Enable CORS for Next.js frontend (localhost:3000)
@@ -64,8 +68,6 @@ class SinglePreviewRequest(BaseModel):
     event_date: str
     issue_date: str
     row: Dict[str, Any]
-
-is_vercel = os.environ.get('VERCEL') is not None or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
 
 if is_vercel:
     OUTPUT_CERTS_DIR = os.path.join('/tmp', 'generated_pdfs')
