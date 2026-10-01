@@ -469,7 +469,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
             print(f"[Generator] Successfully rendered native PowerPoint PDF at {output_pdf_path}")
             return True
         else:
-            print("[Generator] win32com unavailable. Falling back to high-fidelity ReportLab PDF rendering.")
+            print("[Generator] win32com unavailable. Falling back to high-fidelity ReportLab DrawingML PDF rendering.")
             try:
                 import io
                 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -506,157 +506,159 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 scale_x = A4_w / slide_w
                 scale_y = A4_h / slide_h
 
-                for shape_idx, shape in enumerate(slide_temp.shapes):
-                    x = shape.left * scale_x
-                    y = A4_h - (shape.top + shape.height) * scale_y
-                    w = shape.width * scale_x
-                    h = shape.height * scale_y
+                def extract_image_bytes(shape, slide_part):
+                    try:
+                        if hasattr(shape, 'image') and shape.image:
+                            return shape.image.blob, getattr(shape.image, 'filename', '')
+                    except Exception:
+                        pass
+                    try:
+                        rIds = shape._element.xpath('.//@r:embed')
+                        if rIds:
+                            part = slide_part.related_part(rIds[0])
+                            ext = getattr(part, 'partname', '')
+                            return part.blob, str(ext)
+                    except Exception:
+                        pass
+                    return None, ''
 
-                    # Picture shape OR shape with picture fill
-                    has_picture_fill = False
-                    img_bytes = None
-                    is_svg = False
-                    if hasattr(shape, 'fill') and shape.fill and shape.fill.type == 6: # MSO_FILL.PICTURE
+                def render_element(shape, abs_left, abs_top, abs_w, abs_h):
+                    # If it is a group, recurse its children with exact DrawingML group coordinate mapping
+                    if hasattr(shape, 'shapes'):
                         try:
-                            # Use universal xpath to match r:embed on standard blips or svgBlips
-                            rIds = shape.fill._xPr.xpath('.//@r:embed')
-                            rId = rIds[0] if rIds else None
-                            if rId:
-                                part = slide_temp._part.related_part(rId)
-                                img_bytes = part.blob
-                                has_picture_fill = True
-                                if hasattr(part, 'partname') and str(part.partname).lower().endswith('.svg'):
-                                    is_svg = True
-                                elif img_bytes.startswith(b'<svg') or img_bytes.startswith(b'<?xml') or b'<svg' in img_bytes[:200]:
-                                    is_svg = True
-                        except Exception:
-                            pass
+                            xfrm = shape._element.grpSpPr.xfrm
+                            chOff_x = int(xfrm.chOff.x) if hasattr(xfrm, 'chOff') and hasattr(xfrm.chOff, 'x') else 0
+                            chOff_y = int(xfrm.chOff.y) if hasattr(xfrm, 'chOff') and hasattr(xfrm.chOff, 'y') else 0
+                            chExt_x = int(xfrm.chExt.cx) if hasattr(xfrm, 'chExt') and hasattr(xfrm.chExt, 'cx') else shape.width
+                            chExt_y = int(xfrm.chExt.cy) if hasattr(xfrm, 'chExt') and hasattr(xfrm.chExt, 'cy') else shape.height
 
-                    if shape.shape_type == MSO_SHAPE_TYPE.PICTURE or has_picture_fill:
+                            grp_scale_x = abs_w / chExt_x if chExt_x else 1.0
+                            grp_scale_y = abs_h / chExt_y if chExt_y else 1.0
+
+                            for sub in shape.shapes:
+                                sub_left = abs_left + (sub.left - chOff_x) * grp_scale_x
+                                sub_top = abs_top + (sub.top - chOff_y) * grp_scale_y
+                                sub_w = sub.width * grp_scale_x
+                                sub_h = sub.height * grp_scale_y
+                                render_element(sub, sub_left, sub_top, sub_w, sub_h)
+                        except Exception as grp_err:
+                            print(f"[Generator] Group render error: {grp_err}")
+                        return
+
+                    x = abs_left * scale_x
+                    w = abs_w * scale_x
+                    h = abs_h * scale_y
+                    top_y = A4_h - abs_top * scale_y
+                    bot_y = top_y - h
+
+                    # Check for image/picture fill
+                    img_bytes, fname = extract_image_bytes(shape, slide_temp._part)
+                    if img_bytes:
                         try:
-                            if not img_bytes and shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                                img_bytes = shape.image.blob
-                                if hasattr(shape.image, 'filename') and str(shape.image.filename).lower().endswith('.svg'):
-                                    is_svg = True
-                            
-                            if img_bytes:
-                                if is_svg:
-                                    drawing = svg2rlg(io.BytesIO(img_bytes))
-                                    sx = w / drawing.width
-                                    sy = h / drawing.height
-                                    drawing.scale(sx, sy)
-                                    drawing.drawOn(pdf_canvas, x, y)
-                                else:
-                                    img_io = io.BytesIO(img_bytes)
-                                    img_reader = ImageReader(img_io)
-                                    pdf_canvas.drawImage(img_reader, x, y, w, h, mask='auto')
-                        except Exception as img_err:
-                            print(f"[Generator] Fallback error rendering shape [{shape_idx}]: {img_err}")
+                            is_svg = fname.lower().endswith('.svg') or img_bytes.startswith(b'<svg') or b'<svg' in img_bytes[:200]
+                            if is_svg:
+                                drawing = svg2rlg(io.BytesIO(img_bytes))
+                                sx = w / drawing.width
+                                sy = h / drawing.height
+                                drawing.scale(sx, sy)
+                                drawing.drawOn(pdf_canvas, x, bot_y)
+                            else:
+                                img_io = io.BytesIO(img_bytes)
+                                img_reader = ImageReader(img_io)
+                                pdf_canvas.drawImage(img_reader, x, bot_y, w, h, mask='auto')
+                        except Exception as e:
+                            print(f"[Generator] Image render error on {getattr(shape, 'name', '')}: {e}")
 
-                    # AutoShape line divider (height is 0)
-                    elif shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and shape.height == 0:
+                    # Check for line dividers
+                    if shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and abs_h == 0:
                         try:
                             if shape.line and shape.line.color and hasattr(shape.line.color, 'rgb') and shape.line.color.rgb:
                                 rgb = shape.line.color.rgb
-                                color_hex = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
-                                lw = (shape.line.width / 12700.0) if (shape.line.width) else 1.0
-                                
+                                color_hex = f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
+                                lw = (shape.line.width / 12700.0) if shape.line.width else 1.0
                                 pdf_canvas.setStrokeColor(HexColor(color_hex))
                                 pdf_canvas.setLineWidth(lw)
-                                pdf_canvas.line(x, y + h, x + w, y + h)
+                                pdf_canvas.line(x, top_y, x + w, top_y)
                         except Exception:
                             pass
 
-                    # Text Box
-                    if shape.has_text_frame:
-                        try:
-                            story = []
-                            has_text = False
-
-                            for paragraph in shape.text_frame.paragraphs:
-                                p_text = ""
-                                max_font_size = 12
-
-                                for run in paragraph.runs:
-                                    text = run.text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                                    text = text.replace('\u2011', '-')
-                                    if not text.strip():
-                                        p_text += text
-                                        continue
-
-                                    has_text = True
-                                    style_start = ""
-                                    style_end = ""
-
-                                    if run.font.bold:
-                                        style_start += "<b>"
-                                        style_end = "</b>" + style_end
-                                    if run.font.italic:
-                                        style_start += "<i>"
-                                        style_end = "</i>" + style_end
-                                    if run.font.underline:
-                                        style_start += "<u>"
-                                        style_end = "</u>" + style_end
-
-                                    font_name = run.font.name or "Helvetica"
-                                    if "times" in font_name.lower() or "playfair" in font_name.lower():
-                                        if run.font.bold and run.font.italic:
-                                            rl_font = "Times-BoldItalic"
-                                        elif run.font.bold:
-                                            rl_font = "Times-Bold"
-                                        elif run.font.italic:
-                                            rl_font = "Times-Italic"
-                                        else:
-                                            rl_font = "Times-Roman"
+                    # Check for text frame
+                    if hasattr(shape, 'text_frame') and shape.has_text_frame and shape.text_frame.text.strip():
+                        story = []
+                        max_size = 12
+                        for p in shape.text_frame.paragraphs:
+                            if not p.text.strip():
+                                continue
+                            p_text = ''
+                            for r in p.runs:
+                                t = r.text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                                t = t.replace('\u2011', '-')
+                                if not t:
+                                    continue
+                                fn = r.font.name or 'Helvetica'
+                                if 'times' in fn.lower() or 'playfair' in fn.lower():
+                                    if r.font.bold and r.font.italic:
+                                        rl_font = 'Times-BoldItalic'
+                                    elif r.font.bold:
+                                        rl_font = 'Times-Bold'
+                                    elif r.font.italic:
+                                        rl_font = 'Times-Italic'
                                     else:
-                                        if run.font.bold and run.font.italic:
-                                            rl_font = "Helvetica-BoldOblique"
-                                        elif run.font.bold:
-                                            rl_font = "Helvetica-Bold"
-                                        elif run.font.italic:
-                                            rl_font = "Helvetica-Oblique"
-                                        else:
-                                            rl_font = "Helvetica"
+                                        rl_font = 'Times-Roman'
+                                else:
+                                    if r.font.bold and r.font.italic:
+                                        rl_font = 'Helvetica-BoldOblique'
+                                    elif r.font.bold:
+                                        rl_font = 'Helvetica-Bold'
+                                    elif r.font.italic:
+                                        rl_font = 'Helvetica-Oblique'
+                                    else:
+                                        rl_font = 'Helvetica'
 
-                                    size_pt = run.font.size.pt if (run.font.size and hasattr(run.font.size, 'pt')) else 14
-                                    if size_pt > max_font_size:
-                                        max_font_size = size_pt
+                                sz = r.font.size.pt if (r.font.size and hasattr(r.font.size, 'pt')) else 14
+                                if sz > max_size:
+                                    max_size = sz
+                                c_hex = '#000000'
+                                try:
+                                    if r.font.color and r.font.color.type == 1:
+                                        rgb = r.font.color.rgb
+                                        c_hex = f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
+                                except Exception:
+                                    pass
 
-                                    color_hex = "#000000"
-                                    try:
-                                        if run.font.color and run.font.color.type == 1:
-                                            rgb = run.font.color.rgb
-                                            color_hex = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
-                                    except Exception:
-                                        pass
+                                style_s = f'<font name="{rl_font}" size="{sz:.1f}" color="{c_hex}">'
+                                style_e = '</font>'
+                                if r.font.bold:
+                                    style_s += '<b>'
+                                    style_e = '</b>' + style_e
+                                if r.font.underline:
+                                    style_s += '<u>'
+                                    style_e = '</u>' + style_e
+                                p_text += f'{style_s}{t}{style_e}'
 
-                                    style_start += f'<font name="{rl_font}" size="{size_pt:.1f}" color="{color_hex}">'
-                                    style_end = "</font>" + style_end
+                            align = TA_LEFT
+                            if p.alignment == PP_ALIGN.CENTER:
+                                align = TA_CENTER
+                            elif p.alignment == PP_ALIGN.RIGHT:
+                                align = TA_RIGHT
+                            elif p.alignment == PP_ALIGN.JUSTIFY:
+                                align = TA_JUSTIFY
 
-                                    p_text += f"{style_start}{text}{style_end}"
+                            p_style = ParagraphStyle(
+                                name=f's_{uuid.uuid4().hex[:6]}',
+                                alignment=align,
+                                leading=max_size * 1.2
+                            )
+                            story.append(Paragraph(p_text, p_style))
 
-                                if has_text:
-                                    align = TA_LEFT
-                                    if paragraph.alignment == PP_ALIGN.CENTER:
-                                        align = TA_CENTER
-                                    elif paragraph.alignment == PP_ALIGN.RIGHT:
-                                        align = TA_RIGHT
-                                    elif paragraph.alignment == PP_ALIGN.JUSTIFY:
-                                        align = TA_JUSTIFY
+                        if story:
+                            frame_h = max(h, max_size * 1.5)
+                            frame_y = top_y - frame_h
+                            f = Frame(x, frame_y, w, frame_h, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
+                            f.addFromList(story, pdf_canvas)
 
-                                    leading = max_font_size * 1.25
-                                    p_style = ParagraphStyle(
-                                        name=f"style_{uuid.uuid4().hex[:6]}",
-                                        alignment=align,
-                                        leading=leading
-                                    )
-                                    story.append(Paragraph(p_text, p_style))
-
-                            if story:
-                                f = Frame(x, y, w, h, leftPadding=2, rightPadding=2, topPadding=2, bottomPadding=2, id=None)
-                                f.addFromList(story, pdf_canvas)
-                        except Exception as txt_err:
-                            print(f"[Generator] Fallback error rendering text shape [{shape_idx}]: {txt_err}")
+                for s in slide_temp.shapes:
+                    render_element(s, s.left, s.top, s.width, s.height)
 
                 pdf_canvas.showPage()
                 pdf_canvas.save()
