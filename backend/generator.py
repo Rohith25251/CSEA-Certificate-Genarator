@@ -485,7 +485,30 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 from reportlab.lib.utils import ImageReader
                 from reportlab.lib.colors import HexColor
                 from svglib.svglib import svg2rlg
+                from reportlab.pdfbase import pdfmetrics
+                from reportlab.pdfbase.ttfonts import TTFont
                 from PIL import Image
+
+                # Register bundled Google Fonts (Poppins, BebasNeue, Anton, Montserrat)
+                fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+                reg_fonts = set()
+                font_map = {
+                    "Poppins": "Poppins-Regular.ttf",
+                    "Poppins-Bold": "Poppins-Bold.ttf",
+                    "Poppins-Medium": "Poppins-Medium.ttf",
+                    "Poppins-SemiBold": "Poppins-SemiBold.ttf",
+                    "BebasNeue": "BebasNeue-Regular.ttf",
+                    "Anton": "Anton-Regular.ttf",
+                    "Montserrat-Bold": "Montserrat-Bold.ttf",
+                }
+                for f_name, f_file in font_map.items():
+                    fp = os.path.join(fonts_dir, f_file)
+                    if os.path.exists(fp):
+                        try:
+                            pdfmetrics.registerFont(TTFont(f_name, fp))
+                            reg_fonts.add(f_name)
+                        except Exception:
+                            pass
 
                 # 1. Clean replacements to remove any Unicode non-breaking hyphens
                 cleaned_replacements = {}
@@ -547,22 +570,49 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                         pass
                     return None
 
-                def get_shape_line_color_and_width(shape):
+                def get_shape_line_info(shape):
                     try:
                         ln = shape._element.xpath('./*[local-name()="spPr"]/*[local-name()="ln"]')
                         if ln:
                             w_val = ln[0].get('w')
                             lw = (int(w_val) / 12700.0) if w_val else 1.0
                             clrs = ln[0].xpath('.//*[local-name()="srgbClr"]')
-                            if clrs:
-                                return f"#{clrs[0].get('val')}", lw
-                        if shape.line and shape.line.color and hasattr(shape.line.color, 'rgb') and shape.line.color.rgb:
-                            rgb = shape.line.color.rgb
-                            lw = (shape.line.width / 12700.0) if shape.line.width else 1.0
-                            return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}", lw
+                            color_hex = f"#{clrs[0].get('val')}" if clrs else None
+                            has_head_oval = bool(ln[0].xpath('.//*[local-name()="headEnd"][@type="oval"]'))
+                            has_tail_oval = bool(ln[0].xpath('.//*[local-name()="tailEnd"][@type="oval"]'))
+                            return color_hex, lw, has_head_oval, has_tail_oval
                     except Exception:
                         pass
-                    return None, 1.0
+                    return None, 1.0, False, False
+
+                def select_font(raw_font_name, is_bold, is_italic):
+                    fn = (raw_font_name or "").lower()
+                    if "league gothic" in fn or "gothic" in fn or "bebas" in fn:
+                        return "BebasNeue" if "BebasNeue" in reg_fonts else "Helvetica-Bold"
+                    if "motter" in fn or "corpus" in fn or "anton" in fn or "impact" in fn:
+                        return "Anton" if "Anton" in reg_fonts else "Helvetica-Bold"
+                    if "tt hoves" in fn or "hoves" in fn or "montserrat" in fn:
+                        return "Montserrat-Bold" if "Montserrat-Bold" in reg_fonts else "Helvetica-Bold"
+                    if "poppins" in fn:
+                        if is_bold:
+                            return "Poppins-Bold" if "Poppins-Bold" in reg_fonts else "Helvetica-Bold"
+                        return "Poppins" if "Poppins" in reg_fonts else "Helvetica"
+                    if "times" in fn or "playfair" in fn or "serif" in fn:
+                        if is_bold and is_italic:
+                            return "Times-BoldItalic"
+                        if is_bold:
+                            return "Times-Bold"
+                        if is_italic:
+                            return "Times-Italic"
+                        return "Times-Roman"
+                    
+                    if is_bold and is_italic:
+                        return "Helvetica-BoldOblique"
+                    if is_bold:
+                        return "Helvetica-Bold"
+                    if is_italic:
+                        return "Helvetica-Oblique"
+                    return "Helvetica"
 
                 def render_element(shape, abs_left, abs_top, abs_w, abs_h):
                     # If it is a group, recurse its children with exact DrawingML group coordinate mapping
@@ -601,7 +651,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                         pdf_canvas.setFillColor(HexColor(fill_hex))
                         pdf_canvas.rect(x, bot_y, w, h, fill=1, stroke=0)
 
-                    # 2. Check for image/picture fill
+                    # 2. Check for image/picture fill / SVGs
                     if img_bytes:
                         try:
                             xfrm_el = shape._element.xpath('.//*[local-name()="xfrm"]')
@@ -640,13 +690,19 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                         except Exception as e:
                             print(f"[Generator] Image render error on {getattr(shape, 'name', '')}: {e}")
 
-                    # 3. Check for line dividers
+                    # 3. Check for line dividers and end circle dots
                     if shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and abs_h == 0:
-                        line_color, lw = get_shape_line_color_and_width(shape)
+                        line_color, lw, has_head_oval, has_tail_oval = get_shape_line_info(shape)
                         if line_color:
                             pdf_canvas.setStrokeColor(HexColor(line_color))
+                            pdf_canvas.setFillColor(HexColor(line_color))
                             pdf_canvas.setLineWidth(lw)
                             pdf_canvas.line(x, top_y, x + w, top_y)
+                            dot_r = max(2.5, lw * 3.0)
+                            if has_head_oval:
+                                pdf_canvas.circle(x, top_y, dot_r, fill=1, stroke=0)
+                            if has_tail_oval:
+                                pdf_canvas.circle(x + w, top_y, dot_r, fill=1, stroke=0)
 
                     # 4. Check for text frame
                     if hasattr(shape, 'text_frame') and shape.has_text_frame and shape.text_frame.text.strip():
@@ -661,25 +717,10 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                                 t = t.replace('\u2011', '-')
                                 if not t:
                                     continue
-                                fn = r.font.name or 'Helvetica'
-                                if 'times' in fn.lower() or 'playfair' in fn.lower():
-                                    if r.font.bold and r.font.italic:
-                                        rl_font = 'Times-BoldItalic'
-                                    elif r.font.bold:
-                                        rl_font = 'Times-Bold'
-                                    elif r.font.italic:
-                                        rl_font = 'Times-Italic'
-                                    else:
-                                        rl_font = 'Times-Roman'
-                                else:
-                                    if r.font.bold and r.font.italic:
-                                        rl_font = 'Helvetica-BoldOblique'
-                                    elif r.font.bold:
-                                        rl_font = 'Helvetica-Bold'
-                                    elif r.font.italic:
-                                        rl_font = 'Helvetica-Oblique'
-                                    else:
-                                        rl_font = 'Helvetica'
+                                
+                                is_bold = bool(r.font.bold)
+                                is_italic = bool(r.font.italic)
+                                rl_font = select_font(r.font.name, is_bold, is_italic)
 
                                 sz = r.font.size.pt if (r.font.size and hasattr(r.font.size, 'pt')) else 14
                                 if sz > max_size:
@@ -698,9 +739,6 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
 
                                 style_s = f'<font name="{rl_font}" size="{sz:.1f}" color="{c_hex}">'
                                 style_e = '</font>'
-                                if r.font.bold:
-                                    style_s += '<b>'
-                                    style_e = '</b>' + style_e
                                 if r.font.underline:
                                     style_s += '<u>'
                                     style_e = '</u>' + style_e
@@ -717,12 +755,12 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                             p_style = ParagraphStyle(
                                 name=f's_{uuid.uuid4().hex[:6]}',
                                 alignment=align,
-                                leading=max_size * 1.25
+                                leading=max_size * 1.35
                             )
                             story.append(Paragraph(p_text, p_style))
 
                         if story:
-                            frame_h = max(h, max_size * 1.5)
+                            frame_h = max(h, max_size * 1.6)
                             frame_y = top_y - frame_h
                             f = Frame(x, frame_y, w, frame_h, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
                             f.addFromList(story, pdf_canvas)
