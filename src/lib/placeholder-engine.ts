@@ -17,6 +17,37 @@ export function substitutePlaceholders(
 
   let result = templateHtml;
 
+  // Check if context.row has an event name or year column first
+  let rowEventName: string | undefined;
+  let rowYear: string | undefined;
+  if (context.row) {
+    for (const [key, val] of Object.entries(context.row)) {
+      const ck = key.trim().toLowerCase().replace(/_/g, ' ');
+      if (
+        (ck.includes('event') || ck.includes('workshop') || ck.includes('topic')) &&
+        !ck.includes('date') &&
+        !ck.includes('id') &&
+        !ck.includes('category')
+      ) {
+        const strVal = formatCellValue(val);
+        if (strVal && !rowEventName) {
+          rowEventName = strVal;
+        }
+      }
+      if (
+        (ck === 'year' || ck.includes('year of study') || ck.includes('academic year') || ck === 'batch') &&
+        !ck.includes('date')
+      ) {
+        const strVal = formatCellValue(val);
+        if (strVal && !rowYear) {
+          rowYear = strVal;
+        }
+      }
+    }
+  }
+
+  const effectiveEventName = rowEventName || context.eventName;
+
   // 1. Replace reserved system tokens first
   const systemMap: Record<string, string> = {
     'certificate_id': context.certificateId,
@@ -24,7 +55,9 @@ export function substitutePlaceholders(
     'student_id': context.studentId,
     'issue_date': context.issueDate,
     'event_date': context.eventDate || context.issueDate,
-    'event_name': context.eventName,
+    'event_name': effectiveEventName,
+    'year': rowYear || '',
+    'year_of_study': rowYear || '',
   };
 
   Object.entries(systemMap).forEach(([key, val]) => {

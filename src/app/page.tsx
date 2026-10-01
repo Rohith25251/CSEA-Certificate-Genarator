@@ -19,7 +19,8 @@ import {
   saveEventToSupabase,
   uploadTemplateToSupabaseStorage,
   fetchAppSettingsFromSupabase,
-  saveAppSettingsToSupabase
+  saveAppSettingsToSupabase,
+  uploadAssetToSupabase
 } from '@/lib/supabase';
 
 import {
@@ -62,7 +63,11 @@ import {
   Trash2,
   Play,
   Loader2,
-  Send
+  Send,
+  Image as ImageIcon,
+  Columns,
+  Palette,
+  LayoutTemplate
 } from 'lucide-react';
 
 import InvitationTab from './invitations/InvitationTab';
@@ -85,6 +90,94 @@ const extractStudentEmail = (row: any, rollNo: string = ''): string => {
     }
   }
   return rollNo ? `${rollNo.toLowerCase()}@kongu.edu` : '';
+};
+
+const extractRowTitle = (row: any, fallback: string = ''): string => {
+  if (!row) return fallback;
+  for (const priorityKey of [
+    'Title', 'title', 'TITLE', 'Title ', 'title ', 'Paper Title', 'paper_title', 
+    'Project Title', 'project_title', 'Topic', 'topic', 'TOPIC', 'Topic ', 'topic '
+  ]) {
+    if (row[priorityKey] !== undefined && row[priorityKey] !== null && String(row[priorityKey]).trim()) {
+      return String(row[priorityKey]).trim();
+    }
+  }
+  for (const key of Object.keys(row)) {
+    const cleanKey = key.trim().toLowerCase().replace(/_/g, ' ');
+    if (
+      (cleanKey.includes('title') || cleanKey.includes('paper') || cleanKey.includes('project')) &&
+      !cleanKey.includes('event') &&
+      !cleanKey.includes('date') &&
+      !cleanKey.includes('id')
+    ) {
+      const val = String(row[key] || '').trim();
+      if (val) return val;
+    }
+  }
+  return fallback;
+};
+
+const extractRowEventName = (row: any, fallback: string = ''): string => {
+  if (!row) return fallback;
+  for (const priorityKey of [
+    'Event', 'event', 'EVENT', 'Event ', 'event ', 'Event Name', 'event_name', 'Event_Name', 'EVENT_NAME',
+    'Event Title', 'event_title', 'Event_Title',
+    'Workshop', 'workshop', 'Workshop Name', 'workshop_name',
+    'Activity', 'activity', 'Competition', 'competition',
+    'Track', 'track', 'Name of the Event', 'Name of the event'
+  ]) {
+    if (row[priorityKey] !== undefined && row[priorityKey] !== null && String(row[priorityKey]).trim()) {
+      return String(row[priorityKey]).trim();
+    }
+  }
+  for (const key of Object.keys(row)) {
+    const cleanKey = key.trim().toLowerCase().replace(/_/g, ' ');
+    if (
+      (cleanKey.includes('event') || cleanKey.includes('workshop') || cleanKey.includes('activity') || cleanKey.includes('competition') || cleanKey.includes('track')) &&
+      !cleanKey.includes('date') &&
+      !cleanKey.includes('id') &&
+      !cleanKey.includes('category') &&
+      !cleanKey.includes('college') &&
+      !cleanKey.includes('student') &&
+      !cleanKey.includes('participant') &&
+      !cleanKey.includes('mail')
+    ) {
+      const val = String(row[key] || '').trim();
+      if (val) return val;
+    }
+  }
+  return fallback;
+};
+
+const extractRowYear = (row: any, fallback: string = ''): string => {
+  if (!row) return fallback;
+  for (const key of Object.keys(row)) {
+    const cleanKey = key.trim().toLowerCase().replace(/_/g, ' ');
+    if (
+      (cleanKey === 'year' || cleanKey.includes('year of study') || cleanKey.includes('academic year') || cleanKey === 'batch') &&
+      !cleanKey.includes('date')
+    ) {
+      const val = String(row[key] || '').trim();
+      if (val) return val;
+    }
+  }
+  return fallback;
+};
+
+const extractRowPhone = (row: any, fallback: string = ''): string => {
+  if (!row) return fallback;
+  for (const key of Object.keys(row)) {
+    const cleanKey = key.trim().toLowerCase().replace(/_/g, ' ');
+    if (
+      (cleanKey.includes('mobile') || cleanKey.includes('phone') || cleanKey.includes('contact')) &&
+      !cleanKey.includes('email') &&
+      !cleanKey.includes('mail')
+    ) {
+      const val = String(row[key] || '').trim();
+      if (val) return val;
+    }
+  }
+  return fallback;
 };
 
 const getShortDept = (dept?: string) => {
@@ -122,7 +215,7 @@ export default function UnifiedCseaCopterCodeApp() {
   const [templateFile, setTemplateFile] = useState<File | null>(null);
 
   // Batch Release & Event Details (Completely Unfilled By Default)
-  const [eventName, setEventName] = useState('');
+  const [eventId, setEventId] = useState('');
   const [eventCategory, setEventCategory] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [issueDate, setIssueDate] = useState('');
@@ -307,10 +400,418 @@ export default function UnifiedCseaCopterCodeApp() {
     }
   };
 
+  const [isUploadingLogo, setIsUploadingLogo] = useState<boolean>(false);
+  const [isUploadingHero, setIsUploadingHero] = useState<boolean>(false);
+  const [isUploadingModalAsset, setIsUploadingModalAsset] = useState<boolean>(false);
+  const [modalUploadedAssetUrl, setModalUploadedAssetUrl] = useState<string>('');
+
+  const handleUploadImage = async (file: File, type: 'logo' | 'hero' | 'modal') => {
+    if (!file) return;
+    if (type === 'logo') setIsUploadingLogo(true);
+    else if (type === 'hero') setIsUploadingHero(true);
+    else setIsUploadingModalAsset(true);
+    setEmailSettingsMsg('');
+
+    try {
+      let uploadedUrl = '';
+      
+      // 1. Try Supabase direct upload
+      const res = await uploadAssetToSupabase(file, 'assets');
+      if (res.success && res.url) {
+        uploadedUrl = res.url;
+      }
+
+      // 2. Fallback to Python backend upload endpoint
+      if (!uploadedUrl && pythonBackendOnline) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('folder', 'assets');
+        const bRes = await fetch(`${PYTHON_API_URL}/api/upload-asset`, {
+          method: 'POST',
+          body: formData
+        });
+        const bData = await bRes.json();
+        if (bData.status === 'success' && bData.url) {
+          uploadedUrl = bData.url;
+        }
+      }
+
+      if (uploadedUrl) {
+        if (type === 'logo') {
+          setCustomLogoUrl(uploadedUrl);
+          setUseCustomLogo(true);
+          await saveAppSettingsToSupabase('use_custom_logo', { enabled: true, url: uploadedUrl });
+          setEmailSettingsMsg('✓ Custom Logo uploaded and saved to Supabase!');
+        } else if (type === 'hero') {
+          setCustomHeroUrl(uploadedUrl);
+          setUseCustomHero(true);
+          await saveAppSettingsToSupabase('use_custom_hero', { enabled: true, url: uploadedUrl });
+          setEmailSettingsMsg('✓ Custom Hero Banner uploaded and saved to Supabase!');
+        } else {
+          setModalUploadedAssetUrl(uploadedUrl);
+          navigator.clipboard.writeText(uploadedUrl);
+        }
+        setTimeout(() => setEmailSettingsMsg(''), 4000);
+      } else {
+        setEmailSettingsMsg('Error: Failed to upload image file.');
+      }
+    } catch (err: any) {
+      console.error('Image upload failed:', err);
+      setEmailSettingsMsg(`Error uploading image: ${err.message || err}`);
+    } finally {
+      if (type === 'logo') setIsUploadingLogo(false);
+      else if (type === 'hero') setIsUploadingHero(false);
+      else setIsUploadingModalAsset(false);
+    }
+  };
+
   // Single and Batch Email Dispatch state
   const [sendingSingleCertId, setSendingSingleCertId] = useState<string | null>(null);
   const [isBatchSendingEmails, setIsBatchSendingEmails] = useState<boolean>(false);
   const [batchEmailProgress, setBatchEmailProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+
+  // Email HTML Code & Preview Modal
+  const [emailCodeModal, setEmailCodeModal] = useState<{
+    isOpen: boolean;
+    studentName: string;
+    studentEmail: string;
+    eventName: string;
+    eventDate: string;
+    htmlContent: string;
+    activeTab: 'code' | 'preview';
+    cert?: Certificate;
+  } | null>(null);
+  const [copiedEmailHtml, setCopiedEmailHtml] = useState<boolean>(false);
+  const [isSavingTemplate, setIsSavingTemplate] = useState<boolean>(false);
+  const [templateSaveMsg, setTemplateSaveMsg] = useState<string>('');
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [previewRefreshKey, setPreviewRefreshKey] = useState<number>(0);
+
+  const handleSaveCustomEmailTemplate = async (htmlToSave: string) => {
+    setIsSavingTemplate(true);
+    setTemplateSaveMsg('');
+    try {
+      if (pythonBackendOnline) {
+        await fetch(`${PYTHON_API_URL}/api/save-email-template`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ html: htmlToSave, enabled: true })
+        });
+      }
+      await saveAppSettingsToSupabase('custom_email_template', { enabled: true, html: htmlToSave });
+      setTemplateSaveMsg('✓ Template saved to Supabase DB for all future emails!');
+      setTimeout(() => setTemplateSaveMsg(''), 5000);
+    } catch (err: any) {
+      console.error('Failed to save email template:', err);
+      setTemplateSaveMsg('✓ Template saved locally!');
+      setTimeout(() => setTemplateSaveMsg(''), 5000);
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
+  const [lastSentEmailNotification, setLastSentEmailNotification] = useState<{
+    studentName: string;
+    studentEmail: string;
+    htmlContent: string;
+    cert: Certificate;
+  } | null>(null);
+
+  const getRenderedPreviewHtml = (rawHtml: string) => {
+    if (!rawHtml) return '';
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://bqvnuvfmddtyvpxuceol.supabase.co';
+    const defaultLogoUrl = `${supabaseUrl}/storage/v1/object/public/templates/assets/email_logo.png`;
+    const defaultHeroUrl = `${supabaseUrl}/storage/v1/object/public/templates/assets/email_hero.png`;
+    const logoSrc = useCustomLogo && customLogoUrl ? customLogoUrl : defaultLogoUrl;
+    const heroSrc = useCustomHero && customHeroUrl ? customHeroUrl : defaultHeroUrl;
+
+    let rendered = rawHtml;
+
+    // When viewing for a specific certificate from the certificates table/generation section, substitute real replaced values
+    if (emailCodeModal?.cert) {
+      const sName = emailCodeModal.cert.studentName || 'Participant';
+      const eName = emailCodeModal.cert.eventName || 'Technical Event';
+      let rawDate = emailCodeModal.cert.eventDate || emailCodeModal.cert.customFields?.event_date || emailCodeModal.cert.issueDate || '2026-09-30';
+      let formattedDate = rawDate;
+      try {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          formattedDate = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+        }
+      } catch {}
+
+      const textReplacements: Record<string, string> = {
+        'student_name': sName,
+        'name': sName,
+        'Name': sName,
+        'event_name': eName,
+        'Event Name': eName,
+        'Event_Name': eName,
+        'Event': eName,
+        'event': eName,
+        'EVENT': eName,
+        'Topic': eName,
+        'topic': eName,
+        'Title': eName,
+        'title': eName,
+        'Workshop': eName,
+        'event_date': formattedDate,
+        'Date': formattedDate,
+        'Event Date': formattedDate,
+      };
+
+      for (const [k, v] of Object.entries(textReplacements)) {
+        if (v) {
+          rendered = rendered.split(`{${k}}`).join(v);
+          rendered = rendered.split(`{{${k}}}`).join(v);
+          rendered = rendered.split(`<<${k}>>`).join(v);
+        }
+      }
+    }
+
+    // Dynamic replacement of hero_src and logo_src so actual images render in preview
+    const imageReplacements: Record<string, string> = {
+      'hero_src': heroSrc,
+      'logo_src': logoSrc
+    };
+    for (const [k, v] of Object.entries(imageReplacements)) {
+      rendered = rendered.split(`{${k}}`).join(v);
+      rendered = rendered.split(`{{${k}}}`).join(v);
+      rendered = rendered.split(`<<${k}>>`).join(v);
+    }
+
+    // Dynamic replacement of hero banner image in live preview
+    if (heroSrc) {
+      if (heroSrc !== defaultHeroUrl) {
+        rendered = rendered.split(defaultHeroUrl).join(heroSrc);
+      }
+      rendered = rendered.split('/hero.png').join(heroSrc);
+      rendered = rendered.split('http://localhost:3000/hero.png').join(heroSrc);
+      rendered = rendered.split('http://localhost:3000/email_hero.png').join(heroSrc);
+
+      // Also dynamically update src on img elements for the hero banner
+      rendered = rendered.replace(
+        /(<img[^>]*?alt=["'](?:CSEA Header Hero|Hero Banner|Hero Image)["'][^>]*?src=["'])[^"']+([^"']*["'])/gi,
+        `$1${heroSrc}$2`
+      );
+      rendered = rendered.replace(
+        /(<img[^>]*?src=["'])[^"']+([^"']*["'][^>]*?alt=["'](?:CSEA Header Hero|Hero Banner|Hero Image)["'])/gi,
+        `$1${heroSrc}$2`
+      );
+    }
+
+    // Dynamic replacement of logo image in live preview
+    if (logoSrc) {
+      if (logoSrc !== defaultLogoUrl) {
+        rendered = rendered.split(defaultLogoUrl).join(logoSrc);
+      }
+      rendered = rendered.split('/csea_logo.png').join(logoSrc);
+      rendered = rendered.split('http://localhost:3000/csea_logo.png').join(logoSrc);
+      rendered = rendered.split('http://localhost:3000/email_logo.png').join(logoSrc);
+
+      // Also dynamically update src on img elements for the logo
+      rendered = rendered.replace(
+        /(<img[^>]*?alt=["'](?:CSEA Logo|Logo)["'][^>]*?src=["'])[^"']+([^"']*["'])/gi,
+        `$1${logoSrc}$2`
+      );
+      rendered = rendered.replace(
+        /(<img[^>]*?src=["'])[^"']+([^"']*["'][^>]*?alt=["'](?:CSEA Logo|Logo)["'])/gi,
+        `$1${logoSrc}$2`
+      );
+    }
+
+    return rendered;
+  };
+
+  const handleOpenEmailCodeModal = async (cert?: Certificate | null) => {
+    const sName = cert?.studentName || 'Participant';
+    const sEmail = cert?.studentEmail || 'student@kongu.edu';
+    const eName = cert?.eventName || (excelResult?.rows && excelResult.rows.length > 0 ? extractRowEventName(excelResult.rows[0]) : 'Technical Workshop');
+    const eDate = cert?.eventDate || cert?.customFields?.event_date || cert?.customFields?.eventDate || eventDate || '2026-09-21';
+
+    let html = '';
+
+    // 1. Try loading custom template from Supabase app_settings
+    try {
+      const appSettings = await fetchAppSettingsFromSupabase();
+      if (appSettings && appSettings.custom_email_template) {
+        const val = appSettings.custom_email_template;
+        if (typeof val === 'object' && val.html && val.html.length > 50) {
+          html = val.html;
+        } else if (typeof val === 'string' && val.length > 50) {
+          html = val;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load custom template from Supabase:', e);
+    }
+
+    // 2. Try fetching from Python backend
+    if (!html && pythonBackendOnline) {
+      try {
+        const res = await fetch(`${PYTHON_API_URL}/api/get-email-template`);
+        const data = await res.json();
+        if (data && data.html && data.html.length > 50) {
+          html = data.html;
+        }
+      } catch (e) {
+        console.warn('API email template notice:', e);
+      }
+    }
+
+    // 3. Fallback standard default template with clean dynamic tokens
+    if (!html) {
+      html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    @media screen and (max-width: 600px) {
+      .header-container { flex-direction: column !important; text-align: center !important; }
+      .logo-wrapper { margin-right: 0 !important; margin-bottom: 15px !important; }
+      .content-wrapper { padding: 24px !important; }
+      .footer-cols { flex-direction: column !important; }
+      .footer-col { width: 100% !important; margin-bottom: 20px !important; }
+    }
+  </style>
+</head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; color: #333333; background-color: #FAF3E7; margin: 0; padding: 0;">
+  <div style="max-width: 600px; margin: 20px auto; background-color: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08); border: 1px solid #FDE6DA;">
+    <div style="background-color: #1A1F2B; height: 10px; width: 100%;"></div>
+    <div style="width: 100%; border-bottom: 2px solid #FAF3E7;">
+      <img src="{hero_src}" alt="CSEA Header Hero" style="width: 100%; height: auto; display: block;" />
+    </div>
+    <div class="content-wrapper" style="padding: 35px;">
+      <div class="header-container" style="display: flex; align-items: center; margin-bottom: 25px;">
+        <div class="logo-wrapper" style="margin-right: 20px; flex-shrink: 0;">
+          <img src="{logo_src}" alt="CSEA Logo" style="width: 120px; max-width: 100%; height: auto; display: block;" />
+        </div>
+        <div>
+          <h3 style="margin: 0; color: #1A1F2B; font-size: 18px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.3;">
+            COMPUTER SCIENCE ENGINEERING ASSOCIATION
+          </h3>
+          <p style="margin: 6px 0 0 0; font-size: 12px; color: #F15A24; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">
+            Kongu Engineering College
+          </p>
+          <div style="width: 40px; height: 3px; background-color: #3B6FE0; margin-top: 8px; border-radius: 2px;"></div>
+        </div>
+      </div>
+      <hr style="border: none; border-top: 1px dashed #FDE6DA; margin: 0 0 25px 0;" />
+      <h2 style="color: #1A1F2B; font-size: 22px; font-weight: 700; margin-top: 0;">
+        Greetings, {student_name}! 🌟
+      </h2>
+      <p style="font-size: 15px; color: #333333; line-height: 1.7; margin-bottom: 20px;">
+        Thank you for being an active participant in our technical endeavors! On behalf of the Computer Science Engineering Association (CSEA), we commend your dedication and passion for continuous learning.
+      </p>
+      <p style="font-size: 15px; color: #333333; line-height: 1.7; margin-bottom: 25px;">
+        We are delighted to present your official participation details below:
+      </p>
+      <div style="background-color: #FCF3D9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 4px solid #F15A24;">
+        <p style="margin: 0; font-size: 14px; color: #1A1F2B;">
+          <strong>Event Name:</strong> 
+          <span style="font-weight: 700; color: #F15A24; margin-left: 5px;">{event_name}</span>
+        </p>
+        <p style="margin: 10px 0 0 0; font-size: 14px; color: #1A1F2B;">
+          <strong>Event Date:</strong> 
+          <span style="font-weight: 600; color: #333333; margin-left: 5px;">{event_date}</span>
+        </p>
+      </div>
+      <p style="font-size: 14px; color: #6B7280; line-height: 1.6; margin-top: 25px;">
+        We hope this experience was insightful and inspiring. We look forward to seeing your active participation in our upcoming workshops, hackathons, and technical symposiums!
+      </p>
+    </div>
+    <div style="background-color: #111827; padding: 30px; border-top: 1px solid #1F2937;">
+      <div class="footer-cols" style="display: flex; justify-content: space-between; gap: 20px;">
+        <div class="footer-col" style="width: 50%;">
+          <h4 style="color: #FFFFFF; font-size: 14px; font-weight: 700; margin: 0 0 10px 0;">About CSEA</h4>
+          <p style="font-size: 12px; color: #9CA3AF; line-height: 1.6; margin: 0;">
+            Computer Science and Engineering Association (CSEA) is the leading technical forum of Kongu Engineering College, nurturing student potential since inception.
+          </p>
+        </div>
+        <div class="footer-col" style="width: 50%;">
+          <h4 style="color: #F15A24; font-size: 14px; font-weight: 700; margin: 0 0 10px 0;">Contact & Location</h4>
+          <p style="font-size: 12px; color: #9CA3AF; line-height: 1.6; margin: 0 0 8px 0;">
+            📍 Department of CSE, Kongu Engineering College, Perundurai, Erode - 638060, Tamil Nadu, India.
+          </p>
+          <p style="font-size: 12px; color: #9CA3AF; line-height: 1.6; margin: 0 0 8px 0;">
+            📞 +91 863 742 2716<br />
+            📞 +91 861 099 2902
+          </p>
+          <p style="font-size: 12px; color: #9CA3AF; line-height: 1.6; margin: 0;">
+            ✉️ <a href="mailto:csea@kongu.edu" style="color: #F15A24; text-decoration: none; font-weight: 600;">csea@kongu.edu</a>
+          </p>
+        </div>
+      </div>
+      <hr style="border: none; border-top: 1px solid #1F2937; margin: 25px 0 15px 0;" />
+      <div style="text-align: center;">
+        <span style="font-size: 11px; font-weight: 800; color: #FBBF24; letter-spacing: 1.5px;">WE CAN ∞ WE WILL</span>
+        <p style="font-size: 11px; color: #9CA3AF; margin: 6px 0 0 0; line-height: 1.5;">
+          © 2026 CSEA - Kongu Engineering College. All Rights Reserved.
+        </p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+    }
+
+    let finalHtml = html;
+    if (cert) {
+      let formattedDate = eDate;
+      try {
+        const d = new Date(eDate);
+        if (!isNaN(d.getTime())) {
+          formattedDate = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+        }
+      } catch {}
+
+      const textReplacements: Record<string, string> = {
+        'student_name': sName,
+        'name': sName,
+        'Name': sName,
+        'event_name': eName,
+        'Event Name': eName,
+        'Event_Name': eName,
+        'Event': eName,
+        'event': eName,
+        'EVENT': eName,
+        'Topic': eName,
+        'topic': eName,
+        'Title': eName,
+        'title': eName,
+        'Workshop': eName,
+        'event_date': formattedDate,
+        'Date': formattedDate,
+        'Event Date': formattedDate,
+      };
+
+      for (const [k, v] of Object.entries(textReplacements)) {
+        if (v) {
+          finalHtml = finalHtml.split(`{${k}}`).join(v);
+          finalHtml = finalHtml.split(`{{${k}}}`).join(v);
+          finalHtml = finalHtml.split(`<<${k}>>`).join(v);
+        }
+      }
+    }
+
+    setEmailCodeModal({
+      isOpen: true,
+      studentName: sName,
+      studentEmail: sEmail,
+      eventName: eName,
+      eventDate: eDate,
+      htmlContent: finalHtml,
+      activeTab: 'code',
+      cert: cert || undefined
+    });
+  };
+
+  const handleCopyEmailHtml = (html: string) => {
+    navigator.clipboard.writeText(html);
+    setCopiedEmailHtml(true);
+    setTimeout(() => setCopiedEmailHtml(false), 2500);
+  };
 
   const handleSendSingleEmail = async (cert: Certificate) => {
     if (!cert || !cert.studentEmail) return;
@@ -327,13 +828,22 @@ export default function UnifiedCseaCopterCodeApp() {
             certificate_id: cert.id,
             pdf_filename: cert.customFields?.pdfFilename || `Cert_${cert.certificateCode}_${cert.studentName.replace(/ /g, '_')}.pdf`,
             event_name: cert.eventName || 'Workshop',
-            event_date: cert.issueDate || '2026-07-25',
+            event_date: cert.eventDate || cert.customFields?.event_date || cert.customFields?.eventDate || eventDate || '2026-09-21',
             logo_img_url: useCustomLogo && customLogoUrl ? customLogoUrl : undefined,
             hero_img_url: useCustomHero && customHeroUrl ? customHeroUrl : undefined
           })
         });
         const data = await res.json();
         if (data.success) {
+          if (data.html_content) {
+            setLastSentEmailNotification({
+              studentName: cert.studentName,
+              studentEmail: cert.studentEmail,
+              htmlContent: data.html_content,
+              cert: cert
+            });
+            setTimeout(() => setLastSentEmailNotification(null), 10000);
+          }
           await loadDatabaseRecords();
         }
       } else {
@@ -369,7 +879,7 @@ export default function UnifiedCseaCopterCodeApp() {
               certificate_id: cert.id,
               pdf_filename: cert.customFields?.pdfFilename || `Cert_${cert.certificateCode}_${cert.studentName.replace(/ /g, '_')}.pdf`,
               event_name: cert.eventName || 'Workshop',
-              event_date: cert.issueDate || '2026-07-25',
+              event_date: cert.eventDate || cert.customFields?.event_date || cert.customFields?.eventDate || eventDate || '2026-09-21',
               logo_img_url: useCustomLogo && customLogoUrl ? customLogoUrl : undefined,
               hero_img_url: useCustomHero && customHeroUrl ? customHeroUrl : undefined
             })
@@ -413,7 +923,7 @@ export default function UnifiedCseaCopterCodeApp() {
               certificate_id: cert.id,
               pdf_filename: cert.customFields?.pdfFilename || `Cert_${cert.certificateCode}_${cert.studentName.replace(/ /g, '_')}.pdf`,
               event_name: cert.eventName || 'Workshop',
-              event_date: cert.issueDate || '2026-07-25',
+              event_date: cert.eventDate || cert.customFields?.event_date || cert.customFields?.eventDate || eventDate || '2026-09-21',
               logo_img_url: useCustomLogo && customLogoUrl ? customLogoUrl : undefined,
               hero_img_url: useCustomHero && customHeroUrl ? customHeroUrl : undefined
             })
@@ -695,19 +1205,22 @@ export default function UnifiedCseaCopterCodeApp() {
       alert('Please upload the participant details sheet (.xlsx) before proceeding to Stage 02.');
       return;
     }
-    if (!eventName.trim()) {
-      alert('Please enter the Event Name (Acts as Event ID) before proceeding to Stage 02.');
+    if (!eventId.trim()) {
+      alert('Please enter the Event ID / Code before proceeding to Stage 02.');
       return;
     }
 
     setIsProceedingToStage2(true);
-    const activeEventId = eventName.trim();
+    const activeEventId = eventId.trim();
+    const primaryExcelEvent = (excelResult?.rows && excelResult.rows.length > 0)
+      ? extractRowEventName(excelResult.rows[0], activeEventId)
+      : activeEventId;
 
     try {
-      // 1. Register ONLY the Event in Supabase 'events' table
+      // 1. Register Event in Supabase 'events' table with event_id=activeEventId and event_name=primaryExcelEvent
       const evRes = await saveEventToSupabase({
         event_id: activeEventId,
-        event_name: activeEventId,
+        event_name: primaryExcelEvent,
         event_category: eventCategory || 'Workshop',
         event_date: eventDate || new Date().toISOString().split('T')[0]
       });
@@ -734,7 +1247,7 @@ export default function UnifiedCseaCopterCodeApp() {
       if (pythonBackendOnline && templateFile) {
         const formData = new FormData();
         formData.append('event_id', activeEventId);
-        formData.append('event_name', activeEventId);
+        formData.append('event_name', primaryExcelEvent);
         formData.append('event_category', eventCategory || 'Workshop');
         formData.append('event_date', eventDate || new Date().toISOString().split('T')[0]);
         formData.append('file', templateFile);
@@ -763,7 +1276,10 @@ export default function UnifiedCseaCopterCodeApp() {
 
     setIsGeneratingBatch(true);
     setBatchGenSuccessMsg('');
-    const activeEventId = eventName.trim() || 'default-event';
+    const activeEventId = (eventId.trim() || 'default-event').trim();
+    const primaryExcelEvent = (excelResult?.rows && excelResult.rows.length > 0)
+      ? extractRowEventName(excelResult.rows[0], activeEventId)
+      : activeEventId;
 
     try {
 
@@ -773,6 +1289,9 @@ export default function UnifiedCseaCopterCodeApp() {
         const email = extractStudentEmail(row, rollNo);
         const code = generateCertificateId('WRK', idx + 1);
         const college = String(row['College Name'] || row['College'] || 'Kongu Engineering College').trim() || 'Kongu Engineering College';
+        const rowEvent = extractRowEventName(row, primaryExcelEvent);
+        const rowTitle = extractRowTitle(row, '');
+        const rowYear = extractRowYear(row, '');
 
         return {
           id: `cert-excel-${idx + 1}`,
@@ -781,15 +1300,28 @@ export default function UnifiedCseaCopterCodeApp() {
           studentName: name,
           studentEmail: email,
           eventId: activeEventId,
-          eventName: eventName || 'DATASET TO DECISION Workshop',
+          eventName: rowEvent,
+          eventDate: eventDate || new Date().toISOString().split('T')[0],
           customFields: {
             ...row,
+            Event: rowEvent,
+            EVENT: rowEvent,
+            event: rowEvent,
+            'Event Name': rowEvent,
             event_id: activeEventId,
-            event_name: eventName,
+            event_name: rowEvent,
+            Title: rowTitle,
+            title: rowTitle,
+            TITLE: rowTitle,
+            Topic: rowTitle || rowEvent,
+            'Paper Title': rowTitle,
+            'Project Title': rowTitle,
             event_category: eventCategory || 'Workshop',
             event_date: eventDate,
             issue_date: issueDate,
-            college_name: college
+            college_name: college,
+            year: rowYear,
+            year_of_study: rowYear
           },
           issueDate: issueDate || new Date().toISOString().split('T')[0],
           emailStatus: 'pending',
@@ -803,9 +1335,9 @@ export default function UnifiedCseaCopterCodeApp() {
         const name = String(row['Name'] || row['name'] || 'Participant').trim();
         const email = extractStudentEmail(row, rollNo);
         const section = String(row['Section'] || row['section'] || '').trim();
-        const phone = String(row['Mobile number '] || row['phone'] || '').trim();
+        const phone = extractRowPhone(row, String(row['Mobile number '] || row['phone'] || '').trim());
         const college = String(row['College Name'] || row['College'] || 'Kongu Engineering College').trim() || 'Kongu Engineering College';
-        const year = String(row['Year of Study'] || row['Year'] || row['year'] || '').trim();
+        const year = extractRowYear(row, String(row['Year of Study'] || row['Year'] || row['year'] || '').trim());
 
         return {
           id: `stu-excel-${idx + 1}`,
@@ -829,7 +1361,7 @@ export default function UnifiedCseaCopterCodeApp() {
           body: JSON.stringify({
             batch_id: `Batch_${activeEventId}`,
             event_id: activeEventId,
-            event_name: eventName,
+            event_name: primaryExcelEvent,
             event_category: eventCategory || 'Workshop',
             event_date: eventDate,
             issue_date: issueDate,
@@ -864,15 +1396,19 @@ export default function UnifiedCseaCopterCodeApp() {
 
   // DYNAMIC VIEW HANDLER (Opens PDF directly in a new browser tab without downloading)
   const handleViewCertificate = (c: Certificate) => {
-    const pdfFilename = `Cert_${c.studentName.trim().replace(/\s+/g, '_')}.pdf`;
-    const viewUrl = `${PYTHON_API_URL}/api/download-pdf/${encodeURIComponent(pdfFilename)}?mode=inline&t=${Date.now()}`;
+    const safeName = c.studentName.trim().replace(/\s+/g, '_');
+    const certCode = c.certificateCode || '';
+    const pdfFilename = `Cert_${certCode ? `${certCode}_` : ''}${safeName}.pdf`;
+    const viewUrl = `${PYTHON_API_URL}/api/download-pdf/${encodeURIComponent(pdfFilename)}?cert_id=${encodeURIComponent(c.id || '')}&event_id=${encodeURIComponent(c.eventId || '')}&mode=inline&t=${Date.now()}`;
     window.open(viewUrl, '_blank');
   };
 
   // DYNAMIC DOWNLOAD HANDLER (Triggers direct file download ONLY when clicking Download)
   const handleDownloadCertificate = (c: Certificate) => {
-    const pdfFilename = `Cert_${c.studentName.trim().replace(/\s+/g, '_')}.pdf`;
-    const downloadUrl = `${PYTHON_API_URL}/api/download-pdf/${encodeURIComponent(pdfFilename)}?mode=attachment&t=${Date.now()}`;
+    const safeName = c.studentName.trim().replace(/\s+/g, '_');
+    const certCode = c.certificateCode || '';
+    const pdfFilename = `Cert_${certCode ? `${certCode}_` : ''}${safeName}.pdf`;
+    const downloadUrl = `${PYTHON_API_URL}/api/download-pdf/${encodeURIComponent(pdfFilename)}?cert_id=${encodeURIComponent(c.id || '')}&event_id=${encodeURIComponent(c.eventId || '')}&mode=attachment&t=${Date.now()}`;
 
     const a = document.createElement('a');
     a.href = downloadUrl;
@@ -1512,15 +2048,19 @@ export default function UnifiedCseaCopterCodeApp() {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1">
-                          EVENT NAME (Acts as Event ID)
+                          EVENT ID / CODE
                         </label>
                         <input
                           type="text"
-                          value={eventName}
-                          onChange={(e) => setEventName(e.target.value)}
-                          placeholder="e.g. ML"
+                          value={eventId}
+                          onChange={(e) => setEventId(e.target.value)}
+                          placeholder="e.g. R - Code"
                           className="w-full bg-[#121626] border border-zinc-800 text-white text-xs p-3 rounded-xl focus:outline-none focus:border-blue-500 font-medium"
                         />
+                        <div className="flex items-center space-x-1.5 mt-1.5 text-[10px] text-emerald-400/90 font-medium">
+                          <span>✨</span>
+                          <span>Event names are dynamically extracted per participant from the uploaded Excel sheet.</span>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
@@ -1590,7 +2130,7 @@ export default function UnifiedCseaCopterCodeApp() {
                         STAGE 02 VERIFY EXCEL DETAILS & GENERATE
                       </span>
                       <h2 className="text-2xl font-extrabold text-slate-900 mt-0.5">
-                        {eventName}
+                        {eventId || 'Batch Certificates'}
                       </h2>
                     </div>
 
@@ -1674,6 +2214,8 @@ export default function UnifiedCseaCopterCodeApp() {
                           <th className="py-3 px-4">#</th>
                           <th className="py-3 px-4">Participant Name</th>
                           <th className="py-3 px-4">Register No / Roll No</th>
+                          <th className="py-3 px-4">Year</th>
+                          <th className="py-3 px-4">Phone No</th>
                           <th className="py-3 px-4">Email Address</th>
                           <th className="py-3 px-4">Department & Section</th>
                           <th className="py-3 px-4">College Name</th>
@@ -1686,12 +2228,16 @@ export default function UnifiedCseaCopterCodeApp() {
                           const email = extractStudentEmail(row, rNo);
                           const sec = String(row['Section'] || row['section'] || '').trim();
                           const col = String(row['College Name'] || row['College'] || 'Kongu Engineering College').trim();
+                          const year = extractRowYear(row, String(row['Year of Study'] || row['Year'] || row['year'] || '-').trim()) || '-';
+                          const phone = extractRowPhone(row, String(row['Mobile number '] || row['Phone'] || row['Mobile'] || row['phone'] || row['mobile'] || '-').trim()) || '-';
 
                           return (
                             <tr key={idx} className="hover:bg-slate-50">
                               <td className="py-3 px-4 font-mono font-bold text-slate-400">{idx + 1}</td>
                               <td className="py-3 px-4 font-extrabold text-slate-900 uppercase">{name}</td>
                               <td className="py-3 px-4 font-mono font-bold text-indigo-600">{rNo}</td>
+                              <td className="py-3 px-4 font-semibold text-slate-700">{year}</td>
+                              <td className="py-3 px-4 font-mono text-slate-600">{phone}</td>
                               <td className="py-3 px-4 text-slate-600 font-medium">{email}</td>
                               <td className="py-3 px-4 text-slate-700">CSE {sec ? `(Section ${sec})` : ''}</td>
                               <td className="py-3 px-4 text-slate-800 font-bold">{col}</td>
@@ -2077,6 +2623,15 @@ export default function UnifiedCseaCopterCodeApp() {
 
                             <td className="py-5 px-6 text-right">
                               <div className="flex items-center justify-end space-x-2">
+                                <button
+                                  onClick={() => handleOpenEmailCodeModal(c)}
+                                  className="flex items-center space-x-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 font-bold px-3 py-1 rounded-xl text-xs transition-colors shadow-xs"
+                                  title="View & Copy Rendered HTML Email Code"
+                                >
+                                  <Code className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>Email HTML</span>
+                                </button>
+
                                 <button
                                   onClick={() => handleViewCertificate(c)}
                                   className="flex items-center space-x-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-bold px-3 py-1 rounded-xl text-xs transition-colors"
@@ -2657,11 +3212,14 @@ export default function UnifiedCseaCopterCodeApp() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
                 {/* LOGO IMAGE */}
-                <div className="space-y-3">
+                <div className="space-y-4 bg-slate-50/50 p-5 rounded-3xl border border-slate-200/80">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-extrabold text-slate-900 text-sm">Logo Image</h4>
-                      <p className="text-[11px] text-slate-400 font-medium">Used in both selection & certificate emails.</p>
+                      <h4 className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
+                        <ImageIcon className="w-4 h-4 text-indigo-600" />
+                        <span>Logo Image</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-400 font-medium">Used in top navigation & certificate emails.</p>
                     </div>
                     <button
                       type="button"
@@ -2673,27 +3231,95 @@ export default function UnifiedCseaCopterCodeApp() {
                   </div>
 
                   {useCustomLogo ? (
-                    <input
-                      type="text"
-                      value={customLogoUrl}
-                      onChange={(e) => setCustomLogoUrl(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-2xl p-3 text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-500 shadow-xs"
-                      placeholder="https://your-domain.com/custom_logo.svg"
-                    />
+                    <div className="space-y-3">
+                      {/* Image Preview Box */}
+                      {customLogoUrl && (
+                        <div className="flex items-center space-x-3 p-3 bg-white rounded-2xl border border-slate-200 shadow-xs">
+                          <div className="w-16 h-12 bg-slate-50 rounded-xl border border-slate-100 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                            <img src={customLogoUrl} alt="Custom Logo Preview" className="max-h-full max-w-full object-contain" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">Custom Logo Active</p>
+                            <a href={customLogoUrl} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-600 hover:underline truncate block">
+                              {customLogoUrl}
+                            </a>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCustomLogoUrl('')}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-colors"
+                            title="Clear image URL"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Upload Button / Dropzone */}
+                      <label className={`flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${
+                        isUploadingLogo ? 'border-indigo-400 bg-indigo-50/40' : 'border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10'
+                      }`}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isUploadingLogo}
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleUploadImage(e.target.files[0], 'logo');
+                            }
+                          }}
+                        />
+                        {isUploadingLogo ? (
+                          <div className="flex items-center space-x-2 text-indigo-600 text-xs font-bold">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Uploading logo to Supabase Storage...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2 text-slate-600 text-xs font-bold">
+                            <Upload className="w-4 h-4 text-indigo-600" />
+                            <span>Click or Drag to Upload Logo (.png, .jpg, .svg)</span>
+                          </div>
+                        )}
+                      </label>
+
+                      {/* URL input fallback */}
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">OR ENTER DIRECT URL</span>
+                        <input
+                          type="text"
+                          value={customLogoUrl}
+                          onChange={(e) => setCustomLogoUrl(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-2xl p-3 text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-500 shadow-xs"
+                          placeholder="https://your-domain.com/custom_logo.svg"
+                        />
+                      </div>
+                    </div>
                   ) : (
-                    <div className="inline-flex items-center space-x-1.5 bg-slate-100/80 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-500 border border-slate-200/60">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 inline-block" />
-                      <span>Using .env default</span>
+                    <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-10 bg-slate-50 rounded-xl border border-slate-100 p-1 flex items-center justify-center shrink-0">
+                          <img src="/csea_logo.png" alt="Default Logo" className="max-h-full max-w-full object-contain" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Using Default CSEA Logo</p>
+                          <span className="text-[10px] text-slate-400">Toggle switch above to upload custom logo</span>
+                        </div>
+                      </div>
+                      <span className="bg-slate-100 px-2.5 py-1 rounded-full text-[10px] font-bold text-slate-500">.env Default</span>
                     </div>
                   )}
                 </div>
 
                 {/* HERO IMAGE */}
-                <div className="space-y-3">
+                <div className="space-y-4 bg-slate-50/50 p-5 rounded-3xl border border-slate-200/80">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="font-extrabold text-slate-900 text-sm">Hero Image</h4>
-                      <p className="text-[11px] text-slate-400 font-medium">Used only in the intern certificate email.</p>
+                      <h4 className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
+                        <ImageIcon className="w-4 h-4 text-indigo-600" />
+                        <span>Hero Banner Image</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-400 font-medium">Used as the top header banner in certificate emails.</p>
                     </div>
                     <button
                       type="button"
@@ -2705,23 +3331,88 @@ export default function UnifiedCseaCopterCodeApp() {
                   </div>
 
                   {useCustomHero ? (
-                    <input
-                      type="text"
-                      value={customHeroUrl}
-                      onChange={(e) => setCustomHeroUrl(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded-2xl p-3 text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-500 shadow-xs"
-                      placeholder="https://your-domain.com/custom_hero.png"
-                    />
+                    <div className="space-y-3">
+                      {/* Image Preview Box */}
+                      {customHeroUrl && (
+                        <div className="flex items-center space-x-3 p-3 bg-white rounded-2xl border border-slate-200 shadow-xs">
+                          <div className="w-20 h-12 bg-slate-50 rounded-xl border border-slate-100 p-0.5 flex items-center justify-center shrink-0 overflow-hidden">
+                            <img src={customHeroUrl} alt="Custom Hero Preview" className="h-full w-full object-cover rounded-lg" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">Custom Banner Active</p>
+                            <a href={customHeroUrl} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-600 hover:underline truncate block">
+                              {customHeroUrl}
+                            </a>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCustomHeroUrl('')}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-colors"
+                            title="Clear image URL"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Upload Button / Dropzone */}
+                      <label className={`flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${
+                        isUploadingHero ? 'border-indigo-400 bg-indigo-50/40' : 'border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10'
+                      }`}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isUploadingHero}
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleUploadImage(e.target.files[0], 'hero');
+                            }
+                          }}
+                        />
+                        {isUploadingHero ? (
+                          <div className="flex items-center space-x-2 text-indigo-600 text-xs font-bold">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Uploading banner to Supabase Storage...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2 text-slate-600 text-xs font-bold">
+                            <Upload className="w-4 h-4 text-indigo-600" />
+                            <span>Click or Drag to Upload Hero Banner (.png, .jpg, .webp)</span>
+                          </div>
+                        )}
+                      </label>
+
+                      {/* URL input fallback */}
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">OR ENTER DIRECT URL</span>
+                        <input
+                          type="text"
+                          value={customHeroUrl}
+                          onChange={(e) => setCustomHeroUrl(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-2xl p-3 text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-500 shadow-xs"
+                          placeholder="https://your-domain.com/custom_hero.png"
+                        />
+                      </div>
+                    </div>
                   ) : (
-                    <div className="inline-flex items-center space-x-1.5 bg-slate-100/80 px-3 py-1.5 rounded-full text-[10px] font-bold text-slate-500 border border-slate-200/60">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 inline-block" />
-                      <span>Using .env default</span>
+                    <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-16 h-10 bg-slate-900 rounded-xl border border-slate-800 p-1 flex items-center justify-center shrink-0">
+                          <span className="text-[9px] font-bold text-amber-400 uppercase">CSEA HERO</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Using Default CSEA Banner</p>
+                          <span className="text-[10px] text-slate-400">Toggle switch above to upload custom hero</span>
+                        </div>
+                      </div>
+                      <span className="bg-slate-100 px-2.5 py-1 rounded-full text-[10px] font-bold text-slate-500">.env Default</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="pt-4">
+              <div className="pt-4 flex flex-wrap items-center gap-3">
                 <button
                   onClick={handleSaveEmailSettings}
                   disabled={isSavingEmailSettings}
@@ -2730,9 +3421,319 @@ export default function UnifiedCseaCopterCodeApp() {
                   <Mail className="w-4 h-4" />
                   <span>{isSavingEmailSettings ? 'SAVING EMAIL SETTINGS...' : 'SAVE EMAIL SETTINGS'}</span>
                 </button>
+
+                <button
+                  onClick={() => handleOpenEmailCodeModal(null)}
+                  className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold px-6 py-3.5 rounded-2xl text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 border border-slate-700"
+                >
+                  <Code className="w-4 h-4 text-indigo-400" />
+                  <span>CUSTOMIZE HTML TEMPLATE (LIVE STUDIO)</span>
+                </button>
               </div>
             </div>
 
+          </div>
+        )}
+
+        {/* RECENTLY SENT EMAIL TOAST NOTIFICATION WITH QUICK ACTION TO VIEW HTML */}
+        {lastSentEmailNotification && (
+          <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-slate-700 flex items-center space-x-4 animate-in slide-in-from-bottom-5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <Check className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <p className="font-bold text-slate-100">Email Dispatched Successfully!</p>
+              <p className="text-slate-400">Sent to {lastSentEmailNotification.studentEmail}</p>
+            </div>
+            <button
+              onClick={() => {
+                setEmailCodeModal({
+                  isOpen: true,
+                  studentName: lastSentEmailNotification.studentName,
+                  studentEmail: lastSentEmailNotification.studentEmail,
+                  eventName: lastSentEmailNotification.cert.eventName,
+                  eventDate: lastSentEmailNotification.cert.eventDate || lastSentEmailNotification.cert.customFields?.event_date || eventDate || lastSentEmailNotification.cert.issueDate || '2026-07-25',
+                  htmlContent: lastSentEmailNotification.htmlContent,
+                  activeTab: 'code',
+                  cert: lastSentEmailNotification.cert
+                });
+                setLastSentEmailNotification(null);
+              }}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1 shrink-0 transition-colors shadow-sm"
+            >
+              <Code className="w-3.5 h-3.5" />
+              <span>View HTML</span>
+            </button>
+            <button
+              onClick={() => setLastSentEmailNotification(null)}
+              className="text-slate-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* EMAIL HTML CODE & PREVIEW MODAL */}
+        {emailCodeModal && emailCodeModal.isOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-[32px] border border-slate-200 shadow-2xl w-full max-w-6xl h-[90vh] max-h-[920px] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              
+              {/* MODAL HEADER */}
+              <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 shrink-0">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                    <Code className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
+                      <span>HTML Email Studio & Live Preview</span>
+                      <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">Editable</span>
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleCopyEmailHtml(emailCodeModal.htmlContent)}
+                    className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold px-3.5 py-2 rounded-xl text-xs shadow-sm transition-all active:scale-95"
+                    title="Copy current HTML code to clipboard"
+                  >
+                    {copiedEmailHtml ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Copied HTML!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy HTML</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => handleSaveCustomEmailTemplate(emailCodeModal.htmlContent)}
+                    disabled={isSavingTemplate}
+                    className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                    title="Save this HTML code to database for all future emails"
+                  >
+                    {isSavingTemplate ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Database className="w-3.5 h-3.5" />
+                        <span>Save</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setEmailCodeModal(null)}
+                    className="p-2 rounded-xl hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {templateSaveMsg && (
+                <div className="px-6 py-2.5 bg-emerald-500 text-white text-xs font-bold flex items-center justify-between animate-in slide-in-from-top-2 shrink-0">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-100 shrink-0" />
+                    <span>{templateSaveMsg}</span>
+                  </div>
+                  <button onClick={() => setTemplateSaveMsg('')} className="text-emerald-100 hover:text-white">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* TABS (SPLIT / CODE / PREVIEW / TEMPLATES) & HELPER CHIPS */}
+              <div className="px-6 pt-3 pb-2 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/40 shrink-0">
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setEmailCodeModal({ ...emailCodeModal, activeTab: 'code' })}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
+                      emailCodeModal.activeTab === 'code'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Code className="w-3.5 h-3.5" />
+                    <span>Code Only</span>
+                  </button>
+
+                  <button
+                    onClick={() => setEmailCodeModal({ ...emailCodeModal, activeTab: 'preview' })}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
+                      emailCodeModal.activeTab === 'preview'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Live Preview</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center space-x-3 text-[11px] text-slate-500 font-medium overflow-x-auto">
+                  <label className="flex items-center space-x-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl border border-indigo-200 cursor-pointer font-bold text-xs transition-colors shrink-0">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={isUploadingModalAsset}
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleUploadImage(e.target.files[0], 'modal');
+                        }
+                      }}
+                    />
+                    {isUploadingModalAsset ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload & Copy Image URL</span>
+                      </>
+                    )}
+                  </label>
+
+                  {modalUploadedAssetUrl && (
+                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center space-x-1 shrink-0 animate-in fade-in">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span>Copied Image URL to Clipboard!</span>
+                    </span>
+                  )}
+
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <span className="font-bold text-slate-700">Tokens:</span>
+                    <code className="bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[10px]">{"{student_name}"}</code>
+                    <code className="bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[10px]">{"{event_name}"}</code>
+                    <code className="bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[10px]">{"{event_date}"}</code>
+                    <code className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono text-[10px]">{"{hero_src}"}</code>
+                    <code className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono text-[10px]">{"{logo_src}"}</code>
+                  </div>
+                </div>
+              </div>
+
+              {/* MODAL BODY */}
+              <div className="flex-1 overflow-hidden p-4 bg-slate-950 text-slate-100 flex flex-col min-h-0">
+                {/* 1. CODE ONLY SECTION */}
+                {emailCodeModal.activeTab === 'code' ? (
+                  <div className="flex-1 h-full flex flex-col space-y-2 min-h-0">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 shrink-0">
+                      <span>Full screen HTML editor. Live preview updates instantly when switching to Live Preview.</span>
+                      <span className="font-mono">{emailCodeModal.htmlContent.length.toLocaleString()} chars</span>
+                    </div>
+                    <textarea
+                      value={emailCodeModal.htmlContent}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEmailCodeModal({ ...emailCodeModal, htmlContent: val });
+                        setPreviewRefreshKey((prev) => prev + 1);
+                      }}
+                      className="w-full flex-1 h-full min-h-0 p-4 bg-slate-900 border border-slate-800 rounded-2xl font-mono text-xs text-emerald-400 focus:outline-none focus:border-indigo-500 leading-relaxed resize-none selection:bg-indigo-500 selection:text-white overflow-y-auto"
+                      placeholder="Paste or write HTML email template here..."
+                      spellCheck={false}
+                    />
+                  </div>
+                ) : (
+                  /* 2. LIVE PREVIEW SECTION */
+                  <div className="flex-1 h-full min-h-0 bg-slate-900/90 rounded-2xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col">
+                    <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDevice('desktop')}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                            previewDevice === 'desktop'
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white bg-slate-800/60'
+                          }`}
+                        >
+                          🖥️ Desktop View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewDevice('mobile')}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                            previewDevice === 'mobile'
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white bg-slate-800/60'
+                          }`}
+                        >
+                          📱 Mobile (380px)
+                        </button>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewRefreshKey((prev) => prev + 1)}
+                          className="flex items-center space-x-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl transition-colors font-bold shadow-sm"
+                          title="Force reload preview"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Refresh Preview</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-h-0 overflow-y-auto bg-slate-950/70 p-4 flex justify-center items-start">
+                      <div className={`transition-all duration-200 shadow-2xl rounded-2xl overflow-hidden border border-slate-800 bg-[#FAF3E7] ${
+                        previewDevice === 'mobile' ? 'w-[390px] min-h-[700px]' : 'w-full max-w-[650px] min-h-[700px]'
+                      }`}>
+                        <iframe
+                          key={`preview_frame_${previewDevice}_${previewRefreshKey}_${emailCodeModal.htmlContent.length}`}
+                          srcDoc={getRenderedPreviewHtml(emailCodeModal.htmlContent)}
+                          title="HTML Email Live Preview"
+                          className="w-full h-[720px] border-none bg-[#FAF3E7]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MODAL FOOTER */}
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-3 shrink-0">
+                <button
+                  onClick={() => handleSaveCustomEmailTemplate(emailCodeModal.htmlContent)}
+                  disabled={isSavingTemplate}
+                  className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Save</span>
+                </button>
+
+                {emailCodeModal.cert && (
+                  <button
+                    onClick={() => {
+                      handleSendSingleEmail(emailCodeModal.cert!);
+                    }}
+                    disabled={sendingSingleCertId === emailCodeModal.cert.id}
+                    className="flex items-center space-x-1.5 bg-amber-500 hover:bg-amber-600 text-white font-extrabold px-4 py-2 rounded-xl text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{sendingSingleCertId === emailCodeModal.cert.id ? 'Sending...' : 'Send This Email'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setEmailCodeModal(null)}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+
+            </div>
           </div>
         )}
 

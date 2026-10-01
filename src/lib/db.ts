@@ -34,6 +34,7 @@ export interface Certificate {
   studentEmail: string;
   eventId: string;
   eventName: string;
+  eventDate?: string;
   customFields: Record<string, any>;
   issueDate: string;
   emailStatus: 'pending' | 'sent' | 'delivered' | 'failed';

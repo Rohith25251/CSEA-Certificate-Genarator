@@ -50,30 +50,43 @@ else:
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 SAVED_PPTX_PATH = os.path.join(UPLOAD_DIR, 'latest_template.pptx')
-DOWNLOADS_WORKSHOP_PATH = r"C:\Users\ROHITH P\Downloads\WORKSHOP.pptx"
 
 def get_active_pptx_template_path(event_id: str = None) -> str:
-    """Returns path to active PPTX template, prioritizing downloading latest template from Supabase Storage bucket."""
-    from supabase_client import download_latest_template_from_supabase
-    
+    """Returns path to active PPTX template, prioritizing local event_templates/{event_id}/ folder, then latest_template.pptx, then Supabase Storage."""
+    # 1. First check local event_templates/{event_id}/
     if event_id:
-        sp_path = download_latest_template_from_supabase(event_id)
-        if sp_path and os.path.exists(sp_path):
-            return sp_path
+        clean_eid = str(event_id).strip()
+        candidates = [
+            clean_eid,
+            clean_eid.replace(' ', ''),
+            clean_eid.replace(' ', '-'),
+            clean_eid.replace('-', ' ').strip()
+        ]
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "event_templates"))
+        for cand in candidates:
+            cand_dir = os.path.join(base_dir, cand)
+            if os.path.exists(cand_dir):
+                pptxs = [os.path.join(cand_dir, f) for f in os.listdir(cand_dir) if f.endswith('.pptx')]
+                if pptxs:
+                    pptxs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                    return pptxs[0]
 
+        # 2. Check Supabase Storage under the specific event_id folder
+        from supabase_client import download_latest_template_from_supabase
+        for cand in candidates:
+            sp_path = download_latest_template_from_supabase(cand)
+            if sp_path and os.path.exists(sp_path):
+                return sp_path
+
+    # 3. Check latest uploaded template file from current session
+    if os.path.exists(SAVED_PPTX_PATH):
+        return SAVED_PPTX_PATH
+
+    from supabase_client import download_latest_template_from_supabase
     sp_latest = download_latest_template_from_supabase()
     if sp_latest and os.path.exists(sp_latest):
         return sp_latest
 
-    if event_id:
-        event_local = os.path.join(UPLOAD_DIR, f"{event_id}_template.pptx")
-        if os.path.exists(event_local):
-            return event_local
-
-    if os.path.exists(SAVED_PPTX_PATH):
-        return SAVED_PPTX_PATH
-    if os.path.exists(DOWNLOADS_WORKSHOP_PATH):
-        return DOWNLOADS_WORKSHOP_PATH
     return ""
 
 def save_uploaded_pptx_template(pptx_bytes: bytes) -> str:
@@ -127,10 +140,64 @@ def format_date_to_dd_mm_yyyy(val) -> str:
         
     return val_str
 
+def extract_row_title_from_dict(row: dict, fallback: str = "") -> str:
+    """Extracts student's individual paper/project title or topic from Excel row."""
+    if not row or not isinstance(row, dict):
+        return fallback
+    for pk in [
+        'Title', 'title', 'TITLE', 'Title ', 'title ', 'Paper Title', 'paper_title', 
+        'Project Title', 'project_title', 'Topic', 'topic', 'TOPIC', 'Topic ', 'topic '
+    ]:
+        if pk in row and row[pk] is not None and str(row[pk]).strip():
+            return str(row[pk]).strip()
+    for k, v in row.items():
+        if not k or v is None:
+            continue
+        ck = str(k).strip().lower().replace('_', ' ')
+        cv = str(v).strip()
+        if not cv:
+            continue
+        if ('title' in ck or 'paper' in ck or 'project' in ck) and not ('event' in ck or 'date' in ck or 'id' in ck):
+            return cv
+    return fallback
+
+def extract_row_event_name_from_dict(row: dict, fallback: str = "") -> str:
+    """Extracts student's individual event name from arbitrary Excel row keys."""
+    if not row or not isinstance(row, dict):
+        return fallback
+    
+    # Priority exact keys for Event Name
+    for pk in [
+        'Event', 'event', 'EVENT', 'Event ', 'event ', 'Event Name', 'event_name', 'Event_Name', 'EVENT_NAME',
+        'Event Title', 'event_title', 'Event_Title',
+        'Workshop', 'workshop', 'Workshop Name', 'workshop_name',
+        'Activity', 'activity', 'Competition', 'competition',
+        'Track', 'track', 'Name of the Event', 'Name of the event'
+    ]:
+        if pk in row and row[pk] is not None and str(row[pk]).strip():
+            return str(row[pk]).strip()
+            
+    # Fuzzy search across keys
+    for k, v in row.items():
+        if not k or v is None:
+            continue
+        ck = str(k).strip().lower().replace('_', ' ')
+        cv = str(v).strip()
+        if not cv:
+            continue
+        if (
+            ('event' in ck or 'workshop' in ck or 'activity' in ck or 'competition' in ck or 'track' in ck) and
+            not ('date' in ck or 'id' in ck or 'category' in ck or 'college' in ck or 'student' in ck or 'participant' in ck or 'mail' in ck)
+        ):
+            return cv
+            
+    return fallback
+
 def build_dynamic_replacements(row: dict, extra: dict = None) -> dict:
     """
     Builds a universal dynamic replacement dictionary from ANY arbitrary Excel column header,
     handling trailing/leading spaces, casing, underscore/space variations, and common aliases.
+    Prioritizes row-level Excel values over extra batch defaults.
     """
     rep = {}
     if extra:
@@ -152,29 +219,46 @@ def build_dynamic_replacements(row: dict, extra: dict = None) -> dict:
         rep[clean_k.replace(' ', '_')] = val_str
         rep[clean_k.replace('_', ' ').lower()] = val_str
 
-    # 2. Extract standard fields (Name, Roll No, Email, Date, College, Event) if present
+    # 2. Extract standard fields (Name, Roll No, Email, Date, College, Event, Year, Section) from row
     std_name = None
     std_roll = None
     std_email = None
+    std_event = extract_row_event_name_from_dict(row)
+    std_year = None
+    std_section = None
+    std_college = None
 
     for k, v in row.items():
         if not k or v is None:
             continue
         ck = str(k).strip().lower().replace('_', ' ')
         cv = str(v).strip()
+        if not cv:
+            continue
 
-        if ('name' in ck or 'student' in ck or 'participant' in ck) and not std_name and cv:
+        if ('name' in ck or 'student' in ck or 'participant' in ck) and not ('event' in ck or 'college' in ck or 'workshop' in ck) and not std_name:
             std_name = cv
-        if ('roll' in ck or 'register' in ck or 'reg' in ck or 'id' in ck or 'number' in ck) and not std_roll and cv:
+        if ('roll' in ck or 'register' in ck or 'reg' in ck or 'id' in ck or 'number' in ck) and not ('phone' in ck or 'mobile' in ck or 'contact' in ck) and not std_roll:
             std_roll = cv
-        if ('mail' in ck or 'email' in ck) and '@' in cv:
+        if ('mail' in ck or 'email' in ck) and '@' in cv and not std_email:
             std_email = cv
+        if ('year' in ck or 'academic year' in ck or 'batch' in ck) and not ('date' in ck) and not std_year:
+            std_year = cv
+        if ('section' in ck or 'sec' == ck) and not std_section:
+            std_section = cv
+        if ('college' in ck or 'institution' in ck) and not std_college:
+            std_college = cv
+
+    # Fallback to extra if row didn't have event/name/roll
+    if not std_event and extra:
+        std_event = extra.get('Event') or extra.get('event_name') or extra.get('Event Name') or extra.get('event')
 
     # 3. Register standard aliases for PowerPoint templates with varied token naming
     if std_name:
         for alias in ["Name", "Name ", "name", "Full Name", "Full Name ", "Student Name", "Participant Name", "PARTICIPANT_NAME"]:
-            if alias not in rep:
-                rep[alias] = std_name
+            rep[alias] = std_name
+            rep[alias.lower()] = std_name
+            rep[alias.upper()] = std_name
 
     if std_roll:
         for alias in [
@@ -188,9 +272,47 @@ def build_dynamic_replacements(row: dict, extra: dict = None) -> dict:
             rep[alias.title()] = std_roll
 
     if std_email:
-        for alias in ["Email", "Mail id", "Mail ID", "College mail id", "student_email"]:
-            if alias not in rep:
-                rep[alias] = std_email
+        for alias in ["Email", "Mail id", "Mail ID", "College mail id", "student_email", "Email Address"]:
+            rep[alias] = std_email
+
+    std_title = extract_row_title_from_dict(row)
+    if std_title:
+        for alias in ["Title", "Title ", "title", "TITLE", "Topic", "topic", "TOPIC", "Paper Title", "paper_title", "Project Title"]:
+            rep[alias] = std_title
+            rep[alias.lower()] = std_title
+            rep[alias.upper()] = std_title
+
+    if std_event:
+        for alias in [
+            "event_name", "Event Name", "Event Name ", "event name", "Event_Name", "EVENT_NAME",
+            "event", "Event", "Event ", "EVENT", "Event Title", "event_title", "Event_Title",
+            "Workshop", "Workshop Name", "workshop_name",
+            "Name of the Event", "Name of the event"
+        ]:
+            rep[alias] = std_event
+            rep[alias.lower()] = std_event
+            rep[alias.upper()] = std_event
+            rep[alias.title()] = std_event
+            rep[alias.title()] = std_event
+
+    if std_year:
+        for alias in [
+            "Year", "Year ", "year", "YEAR", "Year of Study", "Year of Study ", 
+            "year_of_study", "Year_Of_Study", "YEAR_OF_STUDY", "Year of study",
+            "Academic Year", "academic_year", "Batch", "batch"
+        ]:
+            rep[alias] = std_year
+            rep[alias.lower()] = std_year
+            rep[alias.upper()] = std_year
+            rep[alias.title()] = std_year
+
+    if std_section:
+        for alias in ["Section", "section", "SECTION", "Sec", "sec"]:
+            rep[alias] = std_section
+
+    if std_college:
+        for alias in ["College", "College Name", "college_name", "COLLEGE", "college"]:
+            rep[alias] = std_college
 
     # 4. Format any date-like values in the replacements dictionary to dd-mm-yyyy with non-breaking hyphens
     for k, v in list(rep.items()):
@@ -211,11 +333,10 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
         except Exception:
             pass
 
-        # Normalize fonts and disable underlines slide-wide
+        # Normalize fonts slide-wide while preserving underline, bold, and italic styles
         for p in shape.text_frame.paragraphs:
             for r in p.runs:
                 if r.font:
-                    r.font.underline = False
                     if r.font.name:
                         name_lower = r.font.name.lower()
                         if "times" in name_lower:
@@ -226,6 +347,20 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                             r.font.name = "Playfair Display"
                             if "bold" in name_lower:
                                 r.font.bold = True
+                        elif "tt hoves" in name_lower or "hoves" in name_lower:
+                            r.font.name = "Arial"
+                            r.font.bold = True
+                        elif "league gothic" in name_lower:
+                            r.font.name = "Impact"
+
+        # Fix bottom signature labels (e.g. FACULTY IN-CHARGE, HoD/CSE) positioning below horizontal lines
+        shape_text = shape.text_frame.text.strip().upper()
+        if any(term in shape_text for term in ["FACULTY", "IN-CHARGE", "INCHARGE", "HOD", "HOD/CSE", "PRINCIPAL", "CONVENOR", "COORDINATOR"]):
+            for other in slide.shapes:
+                if other.shape_type == 1 and other.height == 0:  # Horizontal line AutoShape
+                    if abs(shape.top - other.top) < 80000 and abs(shape.left - other.left) < 800000:
+                        shape.top = other.top + 130000
+                        break
 
         for p in shape.text_frame.paragraphs:
             full_text = p.text
@@ -274,6 +409,14 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                     # Token spans across multiple runs
                     r_first = p.runs[start_run_idx]
                     r_first.text = r_first.text[:start_char_offset] + val_str
+
+                    # If any run within the token was underlined, ensure r_first keeps the underline
+                    was_underlined = any(
+                        p.runs[idx].font.underline for idx in range(start_run_idx, end_run_idx + 1) 
+                        if p.runs[idx].font and p.runs[idx].font.underline
+                    )
+                    if was_underlined and r_first.font:
+                        r_first.font.underline = True
 
                     for mid_idx in range(start_run_idx + 1, end_run_idx):
                         p.runs[mid_idx].text = ""
@@ -451,6 +594,9 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                                     if run.font.italic:
                                         style_start += "<i>"
                                         style_end = "</i>" + style_end
+                                    if run.font.underline:
+                                        style_start += "<u>"
+                                        style_end = "</u>" + style_end
 
                                     font_name = run.font.name or "Helvetica"
                                     if "times" in font_name.lower() or "playfair" in font_name.lower():

@@ -18,38 +18,21 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 /**
  * Save Event directly to Supabase 'events' table
  */
-export async function saveEventToSupabase(eventData: { event_id: string; event_name: string; event_category?: string; event_date: string }) {
+export async function saveEventToSupabase(eventData: { event_id: string; event_name?: string; event_category?: string; event_date: string }) {
   if (!eventData || !eventData.event_id) return { success: false, error: 'No event ID' };
   try {
-    const incomingName = (eventData.event_name || '').trim().toLowerCase();
+    const cleanId = String(eventData.event_id).trim();
+    const cleanCategory = String(eventData.event_category || 'Workshop').trim();
+    const cleanDate = String(eventData.event_date || new Date().toISOString().split('T')[0]).trim();
 
-    // Check if an event with the same event_name already exists
-    const { data: existing, error: fetchError } = await supabase
-      .from('events')
-      .select('event_id, event_name')
-      .ilike('event_name', incomingName);
-
-    if (fetchError) {
-      console.warn('Supabase event fetch notice:', fetchError.message);
-    }
-
-    if (existing && existing.length > 0) {
-      return {
-        success: false,
-        duplicate: true,
-        error: `Event "${eventData.event_name}" already exists in the database.`
-      };
-    }
-
-    // Insert the new event (no overwrite)
+    // Upsert the event record with event_id as primary key
     const { data, error } = await supabase
       .from('events')
-      .insert([{
-        event_id: eventData.event_id,
-        event_name: eventData.event_name || 'DATASET TO DECISION Workshop',
-        event_date: eventData.event_date || new Date().toISOString().split('T')[0],
+      .upsert([{
+        event_id: cleanId,
+        event_date: cleanDate,
         created_at: new Date().toISOString()
-      }])
+      }], { onConflict: 'event_id' })
       .select();
 
     if (error) {
@@ -77,7 +60,7 @@ export async function fetchEventsFromSupabase(): Promise<CseaEvent[]> {
     return data.map((item: any) => ({
       id: item.event_id,
       eventId: item.event_id,
-      eventName: item.event_name,
+      eventName: item.event_name || item.event_id,
       eventCategory: item.event_category || 'Workshop',
       eventDate: item.event_date,
       createdAt: item.created_at
@@ -128,7 +111,7 @@ export async function fetchCertificatesFromSupabase(): Promise<Certificate[]> {
   try {
     const { data, error } = await supabase
       .from('certificates')
-      .select('*, events(event_name), students(*)')
+      .select('*, students(*)')
       .order('created_at', { ascending: false });
 
     if (error || !data) {
@@ -138,13 +121,27 @@ export async function fetchCertificatesFromSupabase(): Promise<Certificate[]> {
 
     return data.map((item: any) => {
       const st = item.students || {};
-      const fetchedEventName = (item.events && item.events.event_name) 
-        ? item.events.event_name 
-        : (item.event_name || item.event_id || 'Workshop');
+      const cf = item.custom_fields || {};
+      const fetchedEventName = item.event_name
+        || cf.Event 
+        || cf.event 
+        || cf['Event Name']
+        || cf.event_name 
+        || item.event_id 
+        || 'Workshop';
+      const fetchedTitle = item.title
+        || cf.Title
+        || cf.title
+        || cf['Paper Title']
+        || cf['Project Title']
+        || '';
+      const fetchedEventDate = item.event_date 
+        || cf.event_date 
+        || '';
 
       const sName = st.name || item.student_name || 'Participant';
       const sRoll = st.register_no || item.student_id || '';
-      const sEmail = st.email || '';
+      const sEmail = item.student_email || st.email || '';
 
       return {
         id: item.id,
@@ -154,9 +151,15 @@ export async function fetchCertificatesFromSupabase(): Promise<Certificate[]> {
         studentEmail: sEmail,
         eventId: item.event_id || '',
         eventName: fetchedEventName,
+        eventDate: fetchedEventDate,
         customFields: {
           ...st,
-          event_name: fetchedEventName
+          ...cf,
+          Event: fetchedEventName,
+          event_name: fetchedEventName,
+          Title: fetchedTitle,
+          title: fetchedTitle,
+          event_date: fetchedEventDate
         },
         issueDate: item.issue_date || '',
         emailStatus: item.email_status || 'pending',
@@ -260,7 +263,9 @@ export async function fetchAppSettingsFromSupabase() {
  */
 export async function saveAppSettingsToSupabase(key: string, value: any) {
   try {
-    const { error } = await supabase.from('app_settings').upsert([{ key, value, updated_at: new Date().toISOString() }]);
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
     if (error) throw error;
     return { success: true };
   } catch (err: any) {
@@ -270,10 +275,60 @@ export async function saveAppSettingsToSupabase(key: string, value: any) {
 }
 
 /**
+ * Upload an image asset to Supabase Storage 'templates' bucket
+ */
+export async function uploadAssetToSupabase(file: File, folder: string = 'assets'): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const cleanFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const filePath = `${folder}/${cleanFileName}`;
+
+    const { data, error } = await supabase.storage
+      .from('templates')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: file.type || 'image/png'
+      });
+
+    if (error) throw error;
+
+    const { data: publicUrlData } = supabase.storage
+      .from('templates')
+      .getPublicUrl(filePath);
+
+    return { success: true, url: publicUrlData.publicUrl };
+  } catch (err: any) {
+    console.warn('Supabase storage upload fallback note:', err);
+    return { success: false, error: err?.message || 'Storage upload error' };
+  }
+}
+
+/**
  * Upsert certificates directly into Supabase database 'certificates' table
  */
 export async function saveCertificatesToSupabase(certs: Certificate[], dbStudentsOverride?: any[]) {
   if (!certs || certs.length === 0) return { success: false };
+
+  // Pre-register any unique event IDs into 'events' table to satisfy relationships
+  try {
+    const uniqueMap = new Map<string, string>();
+    certs.forEach(c => {
+      const eid = (c.eventId || '').trim();
+      if (eid && !uniqueMap.has(eid)) {
+        uniqueMap.set(eid, eid);
+      }
+    });
+
+    for (const [eid] of Array.from(uniqueMap.entries())) {
+      await supabase.from('events').upsert({
+        event_id: eid,
+        event_date: certs[0]?.eventDate || new Date().toISOString().split('T')[0],
+        created_at: new Date().toISOString()
+      }, { onConflict: 'event_id' });
+    }
+  } catch (e) {
+    console.warn('Pre-registering events note:', e);
+  }
 
   // Build lookup map for students (register_no -> student_uuid)
   const studentMap: Record<string, string> = {};
@@ -300,12 +355,22 @@ export async function saveCertificatesToSupabase(certs: Certificate[], dbStudent
       validStudentUuid = studentMap[rawStId.toLowerCase()];
     }
 
+    const effectiveEvent = c.eventName || c.eventId || '';
+    const effectiveTitle = c.customFields?.Title 
+      || c.customFields?.title 
+      || c.customFields?.['Paper Title'] 
+      || c.customFields?.['Project Title'] 
+      || '';
+
     return {
       student_id: validStudentUuid,
-      event_id: c.eventId || null,
+      event_id: c.eventId || effectiveEvent,
       student_name: c.studentName,
+      student_email: c.studentEmail || '',
+      event_name: c.eventName || effectiveEvent,
+      title: effectiveTitle,
       issue_date: c.issueDate || new Date().toISOString().split('T')[0],
-      email_status: c.emailStatus || 'sent',
+      email_status: c.emailStatus || 'pending',
       created_at: c.createdAt || new Date().toISOString()
     };
   });

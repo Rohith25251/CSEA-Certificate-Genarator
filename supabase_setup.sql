@@ -20,8 +20,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authent
 -- 4. Create Tables if they don't exist yet
 CREATE TABLE IF NOT EXISTS public.events (
   event_id TEXT PRIMARY KEY,
-  event_name TEXT NOT NULL,
-  event_category TEXT,
+  event_category TEXT DEFAULT 'Workshop',
   event_date DATE DEFAULT CURRENT_DATE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS public.students (
   email TEXT NOT NULL,
   phone TEXT,
   department TEXT DEFAULT 'Computer Science and Engineering',
-  year_of_study TEXT ,
+  year_of_study TEXT,
   section TEXT,
   college_name TEXT DEFAULT 'Kongu Engineering College',
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -45,10 +44,27 @@ CREATE TABLE IF NOT EXISTS public.certificates (
   event_id TEXT REFERENCES public.events(event_id) ON DELETE CASCADE,
   student_name TEXT NOT NULL,
   student_email TEXT NOT NULL,
+  event_name TEXT,
+  title TEXT,
   issue_date DATE DEFAULT CURRENT_DATE,
   email_status TEXT DEFAULT 'pending',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration updates for existing databases:
+-- Remove event_name from events table:
+ALTER TABLE public.events DROP COLUMN IF EXISTS event_name;
+
+-- Ensure all required columns exist on certificates table:
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS event_name TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS student_email TEXT;
+
+-- Ensure all required columns exist on students table:
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS year_of_study TEXT;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS section TEXT;
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS college_name TEXT DEFAULT 'Kongu Engineering College';
 
 -- 5. ENABLE Row Level Security (RLS) on all 3 tables
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;

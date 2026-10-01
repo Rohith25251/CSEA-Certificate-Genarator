@@ -1,4 +1,5 @@
 import os
+import re
 import smtplib
 import base64
 from typing import Optional
@@ -35,44 +36,113 @@ def get_smtp_config():
         "logo_img_url": os.getenv("EMAIL_LOGO_IMAGE_URL", "http://localhost:3000/csea_logo.png")
     }
 
-def send_certificate_email(
-    recipient_email: str,
+def generate_certificate_email_html(
     student_name: str,
-    cert_code: str,
-    pdf_path: str,
     event_name: str = "Workshop",
     event_date: str = "2026-07-25",
     custom_hero_url: Optional[str] = None,
     custom_logo_url: Optional[str] = None,
-    cert_id: Optional[str] = None
-) -> dict:
-    """
-    Sends certificate PDF via SMTP using the customized CSEA HTML email template.
-    Uses lightweight Base64 Data URIs for images so Gmail displays only the PDF attachment chip.
-    """
+    custom_template_html: Optional[str] = None
+) -> str:
+    """Generates the full styled CSEA HTML email body with dynamic recipient, event name, and date details."""
     # Reformat date from YYYY-MM-DD to DD-Mon-YYYY (e.g. 2026-08-01 -> 01-Aug-2026)
     try:
         from datetime import datetime
-        parsed_date = datetime.strptime(event_date.strip(), "%Y-%m-%d")
+        parsed_date = datetime.strptime(str(event_date).strip(), "%Y-%m-%d")
         event_date = parsed_date.strftime("%d-%b-%Y")
     except Exception:
         pass  # Keep original string if parsing fails
-    if not recipient_email or "@" not in recipient_email:
-        return {"success": False, "error": "Invalid recipient email address"}
 
-    cfg = get_smtp_config()
-    
-    msg = EmailMessage()
-    msg['From'] = cfg["from"]
-    msg['To'] = recipient_email
-    msg['Subject'] = f"Certificate of Participation - {event_name} | CSEA"
-
-    # Use custom URLs if provided, otherwise fallback to default public assets in Supabase Storage
     supabase_url = os.getenv('NEXT_PUBLIC_SUPABASE_URL') or "https://bqvnuvfmddtyvpxuceol.supabase.co"
-    logo_src = custom_logo_url or f"{supabase_url}/storage/v1/object/public/templates/assets/email_logo.png"
-    hero_src = custom_hero_url or f"{supabase_url}/storage/v1/object/public/templates/assets/email_hero.png"
+    default_logo_src = f"{supabase_url}/storage/v1/object/public/templates/assets/email_logo.png"
+    default_hero_src = f"{supabase_url}/storage/v1/object/public/templates/assets/email_hero.png"
 
-    html_content = f"""<!DOCTYPE html>
+    logo_src = custom_logo_url
+    hero_src = custom_hero_url
+
+    # Check Supabase app_settings for custom logo/hero if not passed explicitly
+    if supabase and (not logo_src or not hero_src):
+        try:
+            res_settings = supabase.table('app_settings').select('*').in_('key', ['use_custom_logo', 'use_custom_hero']).execute()
+            if res_settings.data:
+                for row in res_settings.data:
+                    k = row.get('key')
+                    v = row.get('value')
+                    if k == 'use_custom_logo' and not logo_src:
+                        if isinstance(v, dict) and v.get('enabled') and v.get('url'):
+                            logo_src = v.get('url')
+                        elif isinstance(v, str) and v.startswith('http'):
+                            logo_src = v
+                    elif k == 'use_custom_hero' and not hero_src:
+                        if isinstance(v, dict) and v.get('enabled') and v.get('url'):
+                            hero_src = v.get('url')
+                        elif isinstance(v, str) and v.startswith('http'):
+                            hero_src = v
+        except Exception as e:
+            print(f"[Supabase] Settings fetch warning in mailer: {e}")
+
+    logo_src = logo_src or default_logo_src
+    hero_src = hero_src or default_hero_src
+
+    # 1. Check if custom template is passed or saved in Supabase app_settings
+    tpl = custom_template_html
+    if not tpl and supabase:
+        try:
+            res = supabase.table('app_settings').select('value').eq('key', 'custom_email_template').execute()
+            if res.data and len(res.data) > 0:
+                val = res.data[0].get('value')
+                if isinstance(val, dict) and val.get('enabled') and val.get('html'):
+                    tpl = val.get('html')
+                elif isinstance(val, str) and len(val.strip()) > 50:
+                    tpl = val
+        except Exception:
+            pass
+
+    if tpl and len(tpl.strip()) > 50:
+        rendered = tpl
+        replacements = {
+            "student_name": student_name,
+            "name": student_name,
+            "Name": student_name,
+            "event_name": event_name,
+            "Event Name": event_name,
+            "Event_Name": event_name,
+            "event": event_name,
+            "Event": event_name,
+            "EVENT": event_name,
+            "Workshop": event_name,
+            "Topic": event_name,
+            "event_date": event_date,
+            "Date": event_date,
+            "Event Date": event_date,
+            "hero_src": hero_src,
+            "logo_src": logo_src
+        }
+        for k, v in replacements.items():
+            rendered = rendered.replace(f"{{{k}}}", str(v))
+            rendered = rendered.replace(f"{{{{{k}}}}}", str(v))
+            rendered = rendered.replace(f"<<{k}>>", str(v))
+
+        # Replace default URL instances if custom hero/logo is set
+        if hero_src and hero_src != default_hero_src:
+            rendered = rendered.replace(default_hero_src, hero_src)
+            rendered = rendered.replace("/hero.png", hero_src)
+            rendered = rendered.replace("http://localhost:3000/hero.png", hero_src)
+            rendered = rendered.replace("http://localhost:3000/email_hero.png", hero_src)
+            rendered = re.sub(r'(<img[^>]*?alt=["\'](?:CSEA Header Hero|Hero Banner|Hero Image)["\'][^>]*?src=["\'])[^"\']+["\']', rf'\g<1>{hero_src}"', rendered, flags=re.IGNORECASE)
+            rendered = re.sub(r'(<img[^>]*?src=["\'])[^"\']+["\']([^>]*?alt=["\'](?:CSEA Header Hero|Hero Banner|Hero Image)["\'])', rf'\g<1>{hero_src}"\g<2>', rendered, flags=re.IGNORECASE)
+
+        if logo_src and logo_src != default_logo_src:
+            rendered = rendered.replace(default_logo_src, logo_src)
+            rendered = rendered.replace("/csea_logo.png", logo_src)
+            rendered = rendered.replace("http://localhost:3000/csea_logo.png", logo_src)
+            rendered = rendered.replace("http://localhost:3000/email_logo.png", logo_src)
+            rendered = re.sub(r'(<img[^>]*?alt=["\'](?:CSEA Logo|Logo)["\'][^>]*?src=["\'])[^"\']+["\']', rf'\g<1>{logo_src}"', rendered, flags=re.IGNORECASE)
+            rendered = re.sub(r'(<img[^>]*?src=["\'])[^"\']+["\']([^>]*?alt=["\'](?:CSEA Logo|Logo)["\'])', rf'\g<1>{logo_src}"\g<2>', rendered, flags=re.IGNORECASE)
+
+        return rendered
+
+    return f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -158,7 +228,7 @@ def send_certificate_email(
           </span>
         </p>
         <p style="margin: 10px 0 0 0; font-size: 14px; color: #1A1F2B;">
-          <strong>Date:</strong> 
+          <strong>Event Date:</strong> 
           <span style="font-weight: 600; color: #333333; margin-left: 5px;">
             {event_date}
           </span>
@@ -194,7 +264,8 @@ def send_certificate_email(
             📍 Department of CSE, Kongu Engineering College, Perundurai, Erode - 638060, Tamil Nadu, India.
           </p>
           <p style="font-size: 12px; color: #9CA3AF; line-height: 1.6; margin: 0 0 8px 0;">
-            📞 +91 4294 226560
+            📞 +91 863 742 2716<br />
+            📞 +91 861 099 2902
           </p>
           <p style="font-size: 12px; color: #9CA3AF; line-height: 1.6; margin: 0;">
             ✉️ <a href="mailto:csea@kongu.edu" style="color: #F15A24; text-decoration: none; font-weight: 600;">csea@kongu.edu</a>
@@ -219,6 +290,39 @@ def send_certificate_email(
 </body>
 </html>
 """
+
+def send_certificate_email(
+    recipient_email: str,
+    student_name: str,
+    cert_code: str,
+    pdf_path: str,
+    event_name: str = "Workshop",
+    event_date: str = "2026-07-25",
+    custom_hero_url: Optional[str] = None,
+    custom_logo_url: Optional[str] = None,
+    cert_id: Optional[str] = None
+) -> dict:
+    """
+    Sends certificate PDF via SMTP using the customized CSEA HTML email template.
+    Returns the exact rendered HTML code alongside send status.
+    """
+    if not recipient_email or "@" not in recipient_email:
+        return {"success": False, "error": "Invalid recipient email address"}
+
+    cfg = get_smtp_config()
+    
+    msg = EmailMessage()
+    msg['From'] = cfg["from"]
+    msg['To'] = recipient_email
+    msg['Subject'] = f"Certificate of Participation - {event_name} | CSEA"
+
+    html_content = generate_certificate_email_html(
+        student_name=student_name,
+        event_name=event_name,
+        event_date=event_date,
+        custom_hero_url=custom_hero_url,
+        custom_logo_url=custom_logo_url
+    )
 
     # Set HTML content directly as the email body
     msg.set_content(html_content, subtype='html')
@@ -259,7 +363,7 @@ def send_certificate_email(
                     supabase.table('certificates').update({"email_status": "sent"}).eq('id', cert_id).execute()
                     print(f"[Supabase] Updated email_status to 'sent' for certificate ID: {cert_id}")
                 else:
-                    # Fallback lookup: find student ID by email since certificates.student_email is dropped
+                    # Fallback lookup: find student ID by email
                     s_res = supabase.table('students').select('id').eq('email', recipient_email).execute()
                     if s_res.data:
                         s_id = s_res.data[0]['id']
@@ -276,7 +380,20 @@ def send_certificate_email(
             except Exception as clean_err:
                 print(f"[Mailer] Failed to delete temporary PDF {pdf_path}: {clean_err}")
 
-        return {"success": True, "email": recipient_email, "simulated": not bool(cfg["pass"])}
+        return {
+            "success": True, 
+            "email": recipient_email, 
+            "simulated": not bool(cfg["pass"]),
+            "html_content": html_content
+        }
+    except Exception as e:
+        print(f"[SMTP Error] Failed to send email to {recipient_email}: {e}")
+        return {
+            "success": False, 
+            "email": recipient_email, 
+            "error": str(e),
+            "html_content": html_content
+        }
     except Exception as e:
         print(f"[SMTP Error] Failed to send email to {recipient_email}: {e}")
         return {"success": False, "email": recipient_email, "error": str(e)}

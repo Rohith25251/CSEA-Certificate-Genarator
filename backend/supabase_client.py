@@ -43,11 +43,12 @@ def upsert_event_to_db(event_data):
     if not supabase or not event_data or not event_data.get('event_id'):
         return False
     try:
+        ev_id = str(event_data['event_id']).strip()
+        ev_name = str(event_data.get('event_name') or ev_id).strip()
+        ev_date = str(event_data.get('event_date') or '2026-09-21').strip()
         record = {
-            "event_id": event_data['event_id'],
-            "event_name": event_data.get('event_name', 'DATASET TO DECISION Workshop'),
-            "event_category": event_data.get('event_category', 'Workshop'),
-            "event_date": event_data.get('event_date', '2026-07-25')
+            "event_id": ev_id,
+            "event_date": ev_date
         }
         res = supabase.table('events').upsert([record], on_conflict='event_id').execute()
         return True
@@ -82,10 +83,22 @@ def upsert_certificates_to_db(certs_list, inserted_students=None):
     if not supabase or not certs_list:
         return False
     try:
-        # Build student lookup dictionary (register_no -> uuid)
+        # 1. Pre-register distinct events in certs_list to 'events' table to satisfy FK constraint
+        distinct_events = {}
+        for c in certs_list:
+            ev_id = str(c.get('event_id') or '').strip()
+            ev_date = str(c.get('event_date') or '').strip()
+            if ev_id and ev_id not in distinct_events:
+                distinct_events[ev_id] = ev_date
+
+        for ev_id, ev_date in distinct_events.items():
+            upsert_event_to_db({
+                "event_id": ev_id,
+                "event_date": ev_date or "2026-09-21"
+            })
+
+        # 2. Build student lookup dictionary (register_no -> uuid)
         student_map = {}
-        
-        # 1. Use returned inserted students if provided
         if inserted_students:
             for s in inserted_students:
                 reg = str(s.get('register_no', '')).strip().lower()
@@ -93,7 +106,6 @@ def upsert_certificates_to_db(certs_list, inserted_students=None):
                 if reg and sid:
                     student_map[reg] = sid
 
-        # 2. Re-fetch from DB if mapping incomplete
         db_students = get_students_from_db()
         for s in db_students:
             reg = str(s.get('register_no', '')).strip().lower()
@@ -111,10 +123,20 @@ def upsert_certificates_to_db(certs_list, inserted_students=None):
             elif st_id.lower() in student_map:
                 valid_uuid = student_map[st_id.lower()]
 
+            if not valid_uuid and db_students:
+                s_name = str(c.get('student_name', '')).strip().lower()
+                for s in db_students:
+                    if str(s.get('name', '')).strip().lower() == s_name:
+                        valid_uuid = s.get('id')
+                        break
+
             clean_certs.append({
                 "student_id": valid_uuid,
-                "event_id": c.get('event_id'),
+                "event_id": str(c.get('event_id') or '').strip() or 'Workshop',
                 "student_name": c.get('student_name', 'Participant'),
+                "student_email": c.get('student_email', ''),
+                "event_name": c.get('event_name', '') or '',
+                "title": c.get('title', '') or '',
                 "issue_date": c.get('issue_date', '2026-07-25'),
                 "email_status": c.get('email_status', 'pending')
             })
@@ -143,9 +165,10 @@ def download_latest_template_from_supabase(event_id: str = None) -> str:
         return ""
     
     target_folders = []
-    if event_id:
+    if event_id and str(event_id).strip():
         target_folders.append(str(event_id).strip())
-    target_folders.append("")  # Root folder
+    else:
+        target_folders.append("")  # Root folder ONLY if event_id is not specified
 
     is_vercel = os.environ.get('VERCEL') is not None or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
     if is_vercel:

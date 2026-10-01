@@ -2,6 +2,7 @@ import os
 import re
 import io
 import uuid
+import base64
 import datetime
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +25,12 @@ from generator import (
     build_dynamic_replacements,
     pdf_to_base64_png,
     get_active_pptx_template_path,
+    extract_row_event_name_from_dict,
+    extract_row_title_from_dict,
     SAVED_PPTX_PATH,
     DEFAULT_CERTIFICATE_HTML
 )
-from mailer import send_certificate_email
+from mailer import send_certificate_email, generate_certificate_email_html
 
 is_vercel = os.environ.get('VERCEL') is not None or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is not None
 root_path = "/api/backend" if is_vercel else ""
@@ -178,16 +181,15 @@ async def upload_pptx(file: UploadFile = File(...)):
 @app.post("/api/register-event")
 async def register_event(
     event_id: str = Form(...),
-    event_name: str = Form(...),
+    event_name: Optional[str] = Form(None),
     event_category: str = Form("Workshop"),
     event_date: str = Form("2026-07-25"),
     file: Optional[UploadFile] = File(None)
 ):
     """Registers ONLY the event in Supabase events table and saves template in event_id subfolder & Supabase Storage."""
-    # 1. Save Event to Supabase DB
+    # 1. Save Event to Supabase DB (events table has event_id, event_category, event_date)
     upsert_event_to_db({
-        "event_id": event_id,
-        "event_name": event_name,
+        "event_id": str(event_id).strip(),
         "event_category": event_category,
         "event_date": event_date
     })
@@ -197,6 +199,14 @@ async def register_event(
     if file:
         event_folder = os.path.join(TEMPLATES_BASE_DIR, event_id)
         os.makedirs(event_folder, exist_ok=True)
+        # Clean older templates in this folder so only the latest uploaded template is used
+        for f in os.listdir(event_folder):
+            if f.endswith(('.pptx', '.ppt')):
+                try:
+                    os.remove(os.path.join(event_folder, f))
+                except Exception:
+                    pass
+
         template_saved_path = os.path.join(event_folder, file.filename or "template.pptx")
         contents = await file.read()
         with open(template_saved_path, "wb") as f:
@@ -221,7 +231,6 @@ async def register_event(
     return {
         "status": "success",
         "event_id": event_id,
-        "event_name": event_name,
         "template_folder": os.path.join("event_templates", event_id),
         "template_saved": bool(template_saved_path)
     }
@@ -232,15 +241,20 @@ def generate_certificates(req: CertificateRunRequest):
     Called ONLY when clicking 'Generate Certificates' in Stage 02:
     Compiles PDF certificates, upserts Students & Certificates into Supabase DB.
     """
+    rows = req.rows
+    primary_excel_event = None
+    for r in rows:
+        r_ev = extract_row_event_name_from_dict(r)
+        if r_ev:
+            primary_excel_event = r_ev
+            break
+
     # 1. Upsert Event to Supabase events table
     upsert_event_to_db({
-        "event_id": req.event_id,
-        "event_name": req.event_name,
-        "event_category": req.event_category or "Workshop",
+        "event_id": str(req.event_id).strip(),
         "event_date": req.event_date
     })
 
-    rows = req.rows
     students_to_db = []
     certs_to_db = []
     generated_certs = []
@@ -252,7 +266,12 @@ def generate_certificates(req: CertificateRunRequest):
         phone = str(r.get('Mobile number ', r.get('phone', ''))).strip()
         section = str(r.get('Section', r.get('section', ''))).strip()
         college = str(r.get('College Name', r.get('College', 'Kongu Engineering College'))).strip() or "Kongu Engineering College"
-        year = str(r.get('Year of Study', r.get('Year', r.get('year', '')))).strip()
+        year = str(r.get('Year', r.get('Year of Study', r.get('year', r.get('year_of_study', ''))))).strip()
+
+        # Extract row-level Event Name and Title strictly from Excel
+        row_event_name = extract_row_event_name_from_dict(r)
+        effective_event_name = row_event_name or primary_excel_event or req.event_name or "DATASET TO DECISION Workshop"
+        row_title = extract_row_title_from_dict(r)
 
         students_to_db.append({
             "register_no": roll_no,
@@ -267,7 +286,6 @@ def generate_certificates(req: CertificateRunRequest):
 
         cert_code = f"CSEA-2026-WRK-{idx+1:03d}{uuid.uuid4().hex[:4].upper()}"
         issue_date = req.issue_date or datetime.date.today().isoformat()
-        event_name = req.event_name or "DATASET TO DECISION Workshop"
         event_date = req.event_date or issue_date
 
         replacements = build_dynamic_replacements(r, {
@@ -280,10 +298,21 @@ def generate_certificates(req: CertificateRunRequest):
             "Roll Number ": roll_no,
             "roll_no": roll_no,
             "Register No": roll_no,
+            "Year": year,
+            "Year of Study": year,
+            "year": year,
+            "Section": section,
             "issue_date": issue_date,
             "event_date": event_date,
-            "event_name": event_name,
-            "Event Name": event_name,
+            "event_name": effective_event_name,
+            "Event Name": effective_event_name,
+            "Event": effective_event_name,
+            "event": effective_event_name,
+            "EVENT": effective_event_name,
+            "Title": row_title,
+            "title": row_title,
+            "Paper Title": row_title,
+            "Topic": row_title or effective_event_name,
             "college_name": college,
             "Date": issue_date,
             "Date ": issue_date
@@ -299,7 +328,11 @@ def generate_certificates(req: CertificateRunRequest):
         cert_record = {
             "student_id": roll_no,
             "event_id": req.event_id,
+            "event_name": effective_event_name,
+            "title": row_title,
+            "event_date": event_date,
             "student_name": name,
+            "student_email": email,
             "issue_date": issue_date,
             "email_status": "pending",
             "created_at": datetime.datetime.now().isoformat()
@@ -312,6 +345,8 @@ def generate_certificates(req: CertificateRunRequest):
             "studentId": roll_no,
             "studentEmail": email,
             "issueDate": issue_date,
+            "eventName": effective_event_name,
+            "title": row_title,
             "pdfFilename": cert_pdf_name
         })
 
@@ -330,7 +365,12 @@ def generate_certificates(req: CertificateRunRequest):
     }
 
 @app.get("/api/download-pdf/{filename}")
-def download_pdf(filename: str, mode: Optional[str] = "inline"):
+def download_pdf(
+    filename: str, 
+    mode: Optional[str] = "inline",
+    cert_id: Optional[str] = None,
+    event_id: Optional[str] = None
+):
     """
     Dynamically generates and serves PDF files directly from the latest Supabase DB values
     and the latest PPTX template from Supabase Storage bucket.
@@ -342,35 +382,56 @@ def download_pdf(filename: str, mode: Optional[str] = "inline"):
     matched_record = None
     if supabase:
         try:
-            res = supabase.table('certificates').select('*, events(event_name), students(*)').execute()
-            if res.data:
-                for item in res.data:
-                    st = item.get('students') or {}
-                    st_name = str(st.get('name') or item.get('student_name') or '').strip().lower()
-                    st_reg = str(st.get('register_no') or item.get('student_id') or '').strip().lower()
-                    st_email = str(st.get('email') or '').strip().lower()
-                    c_id = str(item.get('id') or '').strip().lower()
+            if cert_id and str(cert_id).strip():
+                c_res = supabase.table('certificates').select('*, students(*)').eq('id', str(cert_id).strip()).execute()
+                if c_res.data and len(c_res.data) > 0:
+                    matched_record = c_res.data[0]
 
-                    if (clean_target.lower() in (c_id, st_name, st_reg, st_email) or
-                        any(p in st_name or p in st_reg for p in target_parts if len(p) > 2)):
-                        matched_record = item
-                        break
+            if not matched_record and event_id and str(event_id).strip():
+                ev_res = supabase.table('certificates').select('*, students(*)').eq('event_id', str(event_id).strip()).order('created_at', desc=True).execute()
+                if ev_res.data:
+                    for item in ev_res.data:
+                        st = item.get('students') or {}
+                        st_name = str(st.get('name') or item.get('student_name') or '').strip().lower()
+                        st_reg = str(st.get('register_no') or item.get('student_id') or '').strip().lower()
+                        st_email = str(st.get('email') or '').strip().lower()
+                        if (clean_target.lower() in (st_name, st_reg, st_email) or
+                            any(p in st_name or p in st_reg for p in target_parts if len(p) > 2)):
+                            matched_record = item
+                            break
+
+            if not matched_record:
+                res = supabase.table('certificates').select('*, students(*)').order('created_at', desc=True).execute()
+                if res.data:
+                    for item in res.data:
+                        st = item.get('students') or {}
+                        st_name = str(st.get('name') or item.get('student_name') or '').strip().lower()
+                        st_reg = str(st.get('register_no') or item.get('student_id') or '').strip().lower()
+                        st_email = str(st.get('email') or '').strip().lower()
+                        c_id = str(item.get('id') or '').strip().lower()
+
+                        if (clean_target.lower() in (c_id, st_name, st_reg, st_email) or
+                            any(p in st_name or p in st_reg for p in target_parts if len(p) > 2)):
+                            matched_record = item
+                            break
         except Exception as e:
             print(f"[Supabase] Notice querying DB for dynamic PDF rendering: {e}")
 
     if matched_record:
         st = matched_record.get('students') or {}
-        ev = matched_record.get('events') or {}
 
-        event_id = matched_record.get('event_id') or ''
-        event_name = ev.get('event_name') or matched_record.get('event_name') or 'Workshop'
+        effective_event_id = event_id or matched_record.get('event_id') or ''
+        event_name = matched_record.get('event_name') or 'Workshop'
+        title = matched_record.get('title') or ''
         student_name = st.get('name') or matched_record.get('student_name') or 'Participant'
         roll_no = st.get('register_no') or matched_record.get('student_id') or ''
         issue_date = matched_record.get('issue_date') or datetime.date.today().isoformat()
         college = st.get('college_name') or 'Kongu Engineering College'
+        year = st.get('year_of_study') or ''
+        section = st.get('section') or ''
 
-        # Fetch latest PPTX template path from Supabase Storage bucket
-        active_template = get_active_pptx_template_path(event_id)
+        # Fetch latest PPTX template path for this specific event_id
+        active_template = get_active_pptx_template_path(effective_event_id)
 
         replacements = build_dynamic_replacements({
             "Name": student_name,
@@ -380,10 +441,22 @@ def download_pdf(filename: str, mode: Optional[str] = "inline"):
             "Roll Number": roll_no,
             "Roll Number ": roll_no,
             "Register No": roll_no,
+            "Year": year,
+            "Year of Study": year,
+            "year": year,
+            "Section": section,
             "Date": issue_date,
             "Date ": issue_date,
             "event_name": event_name,
             "Event Name": event_name,
+            "Event": event_name,
+            "event": event_name,
+            "EVENT": event_name,
+            "Title": title,
+            "title": title,
+            "Paper Title": title,
+            "Topic": title or event_name,
+            "Workshop": event_name,
             "college_name": college
         })
 
@@ -443,6 +516,103 @@ class SendEmailRequest(BaseModel):
     event_date: Optional[str] = "2026-07-25"
     logo_img_url: Optional[str] = None
     hero_img_url: Optional[str] = None
+    custom_html: Optional[str] = None
+
+class SaveTemplateRequest(BaseModel):
+    html: str
+    enabled: Optional[bool] = True
+
+class PreviewEmailRequest(BaseModel):
+    student_name: Optional[str] = "Participant"
+    student_email: Optional[str] = "student@kongu.edu"
+    event_name: Optional[str] = "Workshop"
+    event_date: Optional[str] = "2026-07-25"
+    logo_img_url: Optional[str] = None
+    hero_img_url: Optional[str] = None
+    custom_template: Optional[str] = None
+
+@app.post("/api/save-email-template")
+def save_email_template_endpoint(req: SaveTemplateRequest):
+    """Saves custom HTML email template to Supabase app_settings."""
+    if supabase:
+        try:
+            supabase.table('app_settings').upsert({
+                "key": "custom_email_template",
+                "value": {"enabled": req.enabled, "html": req.html},
+                "updated_at": datetime.datetime.now().isoformat()
+            }, on_conflict="key").execute()
+            return {"status": "success", "message": "Custom email template saved to Supabase!"}
+        except Exception as e:
+            print(f"[Supabase] Error saving custom template: {e}")
+            return {"status": "error", "message": str(e)}
+    return {"status": "success", "message": "Template saved locally!"}
+
+@app.get("/api/get-email-template")
+def get_email_template_endpoint():
+    """Fetches custom HTML email template from Supabase app_settings or returns default."""
+    if supabase:
+        try:
+            res = supabase.table('app_settings').select('value').eq('key', 'custom_email_template').execute()
+            if res.data and len(res.data) > 0:
+                val = res.data[0].get('value')
+                if isinstance(val, dict):
+                    return {"status": "success", "enabled": val.get("enabled", True), "html": val.get("html", "")}
+                elif isinstance(val, str):
+                    return {"status": "success", "enabled": True, "html": val}
+        except Exception as e:
+            print(f"[Supabase] Error fetching custom template: {e}")
+
+    default_html = generate_certificate_email_html(
+        student_name="{student_name}",
+        event_name="{event_name}",
+        event_date="{event_date}"
+    )
+    return {"status": "success", "enabled": False, "html": default_html}
+
+@app.post("/api/preview-email-html")
+def preview_email_html_endpoint(req: PreviewEmailRequest):
+    """Generates the rendered HTML email for live visual preview."""
+    rendered_html = generate_certificate_email_html(
+        student_name=req.student_name or "Participant",
+        event_name=req.event_name or "Workshop",
+        event_date=req.event_date or "2026-07-25",
+        custom_logo_url=req.logo_img_url,
+        custom_hero_url=req.hero_img_url,
+        custom_template_html=req.custom_template
+    )
+    return {"status": "success", "html_content": rendered_html}
+
+@app.post("/api/upload-asset")
+async def upload_asset_endpoint(file: UploadFile = File(...), folder: str = Form("assets")):
+    """Uploads an image asset to Supabase Storage and returns the public URL."""
+    try:
+        content = await file.read()
+        clean_name = f"{int(datetime.datetime.now().timestamp() * 1000)}_{re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)}"
+        storage_path = f"{folder}/{clean_name}"
+        content_type = file.content_type or "image/png"
+        
+        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "https://bqvnuvfmddtyvpxuceol.supabase.co"
+        
+        if supabase:
+            try:
+                supabase.storage.from_("templates").upload(
+                    storage_path,
+                    content,
+                    {"upsert": "true", "content-type": content_type}
+                )
+                public_url = f"{supabase_url}/storage/v1/object/public/templates/{storage_path}"
+                return {"status": "success", "url": public_url, "path": storage_path}
+            except Exception as e:
+                print(f"[Supabase Storage] Upload error: {e}")
+        
+        # Base64 fallback if storage bucket write fails
+        b64 = base64.b64encode(content).decode('utf-8')
+        data_url = f"data:{content_type};base64,{b64}"
+        return {"status": "success", "url": data_url, "path": clean_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.post("/api/send-email-single")
 def send_single_email(req: SendEmailRequest):
@@ -456,39 +626,70 @@ def send_single_email(req: SendEmailRequest):
     # Query DB for latest student & certificate details
     if supabase:
         try:
-            res = supabase.table('certificates').select('*, events(event_name), students(*)').execute()
-            if res.data:
-                for item in res.data:
-                    st = item.get('students') or {}
-                    st_email = str(st.get('email') or '').strip().lower()
-                    if st_email == target_email or target_email in st_email:
-                        ev = item.get('events') or {}
-                        student_name = st.get('name') or item.get('student_name') or req.student_name
-                        roll_no = st.get('register_no') or item.get('student_id') or ''
-                        event_id = item.get('event_id') or ''
-                        event_name = ev.get('event_name') or item.get('event_name') or req.event_name or 'Workshop'
-                        issue_date = item.get('issue_date') or req.event_date or datetime.date.today().isoformat()
-                        college = st.get('college_name') or 'Kongu Engineering College'
+            matched_item = None
+            if req.certificate_id and str(req.certificate_id).strip():
+                c_res = supabase.table('certificates').select('*, students(*)').eq('id', str(req.certificate_id).strip()).execute()
+                if c_res.data and len(c_res.data) > 0:
+                    matched_item = c_res.data[0]
 
-                        active_template = get_active_pptx_template_path(event_id)
-                        replacements = build_dynamic_replacements({
-                            "Name": student_name,
-                            "Name ": student_name,
-                            "name": student_name,
-                            "RollNumber": roll_no,
-                            "Roll Number": roll_no,
-                            "Roll Number ": roll_no,
-                            "Register No": roll_no,
-                            "Date": issue_date,
-                            "Date ": issue_date,
-                            "event_name": event_name,
-                            "Event Name": event_name,
-                            "college_name": college
-                        })
-                        safe_name = "".join(c for c in student_name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-                        pdf_path = os.path.join(OUTPUT_CERTS_DIR, f"Cert_{safe_name}.pdf")
-                        generate_single_native_pdf(active_template, replacements, pdf_path)
-                        break
+            if not matched_item:
+                res = supabase.table('certificates').select('*, students(*)').order('created_at', desc=True).execute()
+                if res.data:
+                    for item in res.data:
+                        st = item.get('students') or {}
+                        st_email = str(st.get('email') or item.get('student_email') or '').strip().lower()
+                        if st_email == target_email or target_email in st_email:
+                            matched_item = item
+                            break
+
+            if matched_item:
+                item = matched_item
+                st = item.get('students') or {}
+                student_name = st.get('name') or item.get('student_name') or req.student_name
+                roll_no = st.get('register_no') or item.get('student_id') or ''
+                event_id = item.get('event_id') or ''
+                
+                cf = item.get('custom_fields') or {}
+                event_name = item.get('event_name') or cf.get('Event') or cf.get('event') or cf.get('Event Name') or cf.get('event_name') or item.get('event_id') or req.event_name or 'Workshop'
+                title = item.get('title') or cf.get('Title') or cf.get('title') or cf.get('Paper Title') or ''
+                event_date = item.get('event_date') or cf.get('event_date') or req.event_date or event_date
+                cert_issue_date = item.get('issue_date') or datetime.date.today().isoformat()
+                college = st.get('college_name') or 'Kongu Engineering College'
+                year = st.get('year_of_study') or ''
+                section = st.get('section') or ''
+
+                active_template = get_active_pptx_template_path(event_id)
+                replacements = build_dynamic_replacements(cf, {
+                    "Name": student_name,
+                    "Name ": student_name,
+                    "name": student_name,
+                    "RollNumber": roll_no,
+                    "Roll Number": roll_no,
+                    "Roll Number ": roll_no,
+                    "Register No": roll_no,
+                    "Year": year,
+                    "Year of Study": year,
+                    "year": year,
+                    "Section": section,
+                    "Date": cert_issue_date,
+                    "Date ": cert_issue_date,
+                    "Issue Date": cert_issue_date,
+                    "Event Date": event_date,
+                    "event_date": event_date,
+                    "event_name": event_name,
+                    "Event Name": event_name,
+                    "Event": event_name,
+                    "event": event_name,
+                    "EVENT": event_name,
+                    "Title": title,
+                    "title": title,
+                    "Paper Title": title,
+                    "Topic": title or event_name,
+                    "college_name": college
+                })
+                safe_name = "".join(c for c in student_name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+                pdf_path = os.path.join(OUTPUT_CERTS_DIR, f"Cert_{safe_name}.pdf")
+                generate_single_native_pdf(active_template, replacements, pdf_path)
         except Exception as e:
             print(f"[Mailer] Notice generating dynamic PDF for email: {e}")
 
@@ -514,6 +715,24 @@ def send_single_email(req: SendEmailRequest):
         cert_id=req.certificate_id
     )
     return res
+
+@app.post("/api/preview-email-html")
+def preview_email_html(req: SendEmailRequest):
+    """Generates and returns the exact rendered HTML code for a certificate email."""
+    html_code = generate_certificate_email_html(
+        student_name=req.student_name,
+        event_name=req.event_name or "Workshop",
+        event_date=req.event_date or "2026-07-25",
+        custom_hero_url=req.hero_img_url,
+        custom_logo_url=req.logo_img_url,
+        custom_template_html=req.custom_html
+    )
+    return {
+        "status": "success",
+        "student_name": req.student_name,
+        "event_name": req.event_name,
+        "html_content": html_code
+    }
 
 @app.post("/api/send-email-batch")
 def send_batch_emails(items: List[SendEmailRequest]):
