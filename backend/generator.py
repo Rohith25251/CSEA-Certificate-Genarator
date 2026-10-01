@@ -529,6 +529,13 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 os.makedirs(os.path.dirname(os.path.abspath(output_pdf_path)), exist_ok=True)
                 pdf_canvas = canvas.Canvas(output_pdf_path, pagesize=(A4_w, A4_h))
 
+                # Set PDF document metadata so browser tab titles display the student's name and event
+                student_title_name = str(replacements.get('Name') or replacements.get('name') or replacements.get('Student Name') or 'Participant').strip()
+                event_title_name = str(replacements.get('event_name') or replacements.get('Event Name') or replacements.get('Event') or 'Certificate').strip()
+                pdf_canvas.setTitle(f"Certificate - {student_title_name} - {event_title_name}")
+                pdf_canvas.setAuthor("CSEA - Kongu Engineering College")
+                pdf_canvas.setSubject(f"Certificate of Participation - {event_title_name}")
+
                 slide_w = prs_temp.slide_width
                 slide_h = prs_temp.slide_height
                 scale_x = A4_w / slide_w
@@ -711,6 +718,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                     if hasattr(shape, 'text_frame') and shape.has_text_frame and shape.text_frame.text.strip():
                         story = []
                         max_size = 12
+                        has_any_underline = False
                         for p in shape.text_frame.paragraphs:
                             if not p.text.strip():
                                 continue
@@ -740,9 +748,17 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                                 except Exception:
                                     pass
 
+                                # Check for underline in r.font.underline or OpenXML u attribute
+                                is_underlined = bool(r.font.underline)
+                                if not is_underlined:
+                                    u_attr = r._r.xpath('.//@u')
+                                    if u_attr and u_attr[0] not in ['none', '0']:
+                                        is_underlined = True
+
                                 style_s = f'<font name="{rl_font}" size="{sz:.1f}" color="{c_hex}">'
                                 style_e = '</font>'
-                                if r.font.underline:
+                                if is_underlined:
+                                    has_any_underline = True
                                     style_s += '<u>'
                                     style_e = '</u>' + style_e
                                 p_text += f'{style_s}{t}{style_e}'
@@ -766,7 +782,14 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                             frame_h = max(h, max_size * 1.6)
                             frame_y = top_y - frame_h
                             f = Frame(x, frame_y, w, frame_h, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
+                            
+                            # Apply dashed underline if underlined
+                            if has_any_underline:
+                                pdf_canvas.setDash(2.5, 2.0)
+                                pdf_canvas.setLineWidth(0.75)
                             f.addFromList(story, pdf_canvas)
+                            if has_any_underline:
+                                pdf_canvas.setDash() # reset back to solid
 
                 for s in slide_temp.shapes:
                     render_element(s, s.left, s.top, s.width, s.height)
