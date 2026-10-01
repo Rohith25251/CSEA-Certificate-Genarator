@@ -21,30 +21,30 @@ export default function ProfilePage() {
   const [savedSettingsMsg, setSavedSettingsMsg] = useState('');
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+    <div className="min-h-screen bg-slate-50 py-4 sm:py-8">
+      <div className="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 space-y-6 sm:space-y-8">
         
         {/* Profile Card Header */}
-        <div className="bg-[#082849] text-white rounded-3xl p-8 shadow-xl relative overflow-hidden border-b-4 border-yellow-500">
+        <div className="bg-[#082849] text-white rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-xl relative overflow-hidden border-b-4 border-yellow-500">
           <div className="absolute right-0 top-0 opacity-15 pointer-events-none transform translate-x-10 -translate-y-10">
             <img src="/csea_logo.png" alt="CSEA" className="h-80 w-auto" />
           </div>
 
-          <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start space-y-6 md:space-y-0 md:space-x-8">
-            <div className="w-24 h-24 bg-gradient-to-tr from-yellow-400 to-amber-500 text-[#082849] font-black text-3xl rounded-2xl flex items-center justify-center shadow-lg border-4 border-white/20">
+          <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start space-y-4 sm:space-y-6 md:space-y-0 md:space-x-8">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-yellow-400 to-amber-500 text-[#082849] font-black text-2xl sm:text-3xl rounded-2xl flex items-center justify-center shadow-lg border-4 border-white/20 shrink-0">
               {profile.name.substring(0, 2).toUpperCase()}
             </div>
 
             <div className="text-center md:text-left flex-grow">
-              <div className="flex flex-col md:flex-row md:items-center justify-between">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
-                  <h1 className="text-2xl font-black">{profile.name}</h1>
+                  <h1 className="text-xl sm:text-2xl font-black">{profile.name}</h1>
                   <p className="text-blue-200 text-xs font-semibold mt-1">{profile.department} ({profile.yearOfStudy})</p>
                 </div>
                 
                 <button
                   onClick={() => setIsEditing(!isEditing)}
-                  className="mt-4 md:mt-0 flex items-center space-x-2 bg-yellow-400 hover:bg-yellow-300 text-[#082849] px-5 py-2.5 rounded-xl font-bold text-xs transition-colors shadow-md"
+                  className="flex items-center justify-center space-x-2 bg-yellow-400 hover:bg-yellow-300 text-[#082849] px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl font-bold text-xs transition-colors shadow-md w-full sm:w-auto"
                 >
                   <Edit2 className="w-4 h-4" />
                   <span>{isEditing ? 'Editing Profile' : 'Edit Profile'}</span>

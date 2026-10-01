@@ -1859,21 +1859,26 @@ export default function UnifiedCseaCopterCodeApp() {
 
       {/* HEADER & NAVIGATION BAR */}
       <header className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-24">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between py-2.5 sm:py-3 md:h-20 gap-2 sm:gap-4">
             
-            <Link href="/" className="flex items-center space-x-3.5 group">
-              <div className="w-16 h-16 bg-white border-2 border-indigo-600 shadow-md rounded-2xl p-1 flex items-center justify-center transition-transform duration-200 group-hover:scale-105 shrink-0">
+            {/* Logo & Portal Title */}
+            <Link href="/" className="flex items-center space-x-2.5 sm:space-x-3.5 group shrink-0 min-w-0">
+              <div className="w-10 h-10 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-white border-2 border-indigo-600 shadow-md rounded-xl sm:rounded-2xl p-0.5 sm:p-1 flex items-center justify-center transition-transform duration-200 group-hover:scale-105 shrink-0">
                 <img src={useCustomLogo && customLogoUrl ? customLogoUrl : "/csea_logo.png"} alt="CSEA" className="w-full h-full object-contain" />
               </div>
-              <div>
-                <span className="font-black text-xl text-slate-900 tracking-tight block leading-tight group-hover:text-indigo-600 transition-colors">CSEA Certificate Hub</span>
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-600/80 block">Official Admin Portal</span>
+              <div className="min-w-0">
+                <span className="font-black text-sm sm:text-lg md:text-xl text-slate-900 tracking-tight block leading-tight truncate group-hover:text-indigo-600 transition-colors">
+                  CSEA Certificate Hub
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-indigo-600/80 block truncate">
+                  Official Admin Portal
+                </span>
               </div>
             </Link>
 
-            {/* Top Nav Pills */}
-            <nav className="flex items-center bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 space-x-1">
+            {/* Desktop Navigation */}
+            <nav className="hidden lg:flex items-center bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 space-x-1 shrink-0">
               {[
                 { id: 'generator', label: 'Generator', icon: LayoutDashboard },
                 { id: 'invitation', label: 'Invitations', icon: Mail },
@@ -1887,7 +1892,7 @@ export default function UnifiedCseaCopterCodeApp() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
-                    className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
+                    className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all shrink-0 ${
                       isActive
                         ? 'bg-white text-slate-900 shadow-md border border-slate-200'
                         : 'text-slate-500 hover:text-slate-900'
@@ -1900,17 +1905,18 @@ export default function UnifiedCseaCopterCodeApp() {
               })}
             </nav>
 
-            <div className="flex items-center space-x-3">
-              <div className="text-right text-xs">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase block">LOGGED IN AS</span>
-                <span className="font-bold text-slate-800">{profileName}</span>
+            {/* User Profile & Logout */}
+            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
+              <div className="hidden sm:block text-right text-xs">
+                <span className="text-[9px] sm:text-[10px] text-slate-400 font-extrabold uppercase block leading-none mb-0.5">LOGGED IN AS</span>
+                <span className="font-bold text-slate-800 text-xs sm:text-sm truncate max-w-[120px] block">{profileName}</span>
               </div>
               <button
                 onClick={async () => {
                   await supabase.auth.signOut();
                   setSession(false);
                 }}
-                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors"
+                className="p-2 sm:p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors shrink-0 flex items-center justify-center"
                 title="Logout"
               >
                 <LogOut className="w-4 h-4" />
@@ -1918,16 +1924,46 @@ export default function UnifiedCseaCopterCodeApp() {
             </div>
 
           </div>
+
+          {/* Mobile & Tablet Navigation Sub-Bar */}
+          <div className="lg:hidden pb-2.5 pt-1 overflow-x-auto no-scrollbar -mx-3 px-3">
+            <nav className="flex items-center space-x-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200 w-max min-w-full">
+              {[
+                { id: 'generator', label: 'Generator', icon: LayoutDashboard },
+                { id: 'invitation', label: 'Invitations', icon: Mail },
+                { id: 'history', label: 'Certificates', icon: FileText },
+                { id: 'registration', label: 'Students', icon: Database },
+                { id: 'profile', label: 'Profile', icon: User },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                      isActive
+                        ? 'bg-white text-indigo-700 shadow-sm border border-slate-200 font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
         </div>
       </header>
 
       {/* MAIN CONTENT */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         
         {supabaseSyncError && (
-          <div className="mb-6 p-5 bg-amber-50 border border-amber-300 rounded-3xl text-amber-900 shadow-sm space-y-2">
-            <div className="flex items-center space-x-2 font-extrabold text-amber-800 text-sm">
-              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+          <div className="mb-6 p-4 sm:p-5 bg-amber-50 border border-amber-300 rounded-2xl sm:rounded-3xl text-amber-900 shadow-sm space-y-2">
+            <div className="flex items-center space-x-2 font-extrabold text-amber-800 text-xs sm:text-sm">
+              <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 shrink-0" />
               <span>Supabase Database Sync Notice: {supabaseSyncError}</span>
             </div>
             <p className="text-xs text-amber-800 font-medium leading-relaxed">
@@ -1943,38 +1979,40 @@ export default function UnifiedCseaCopterCodeApp() {
 
         {/* TAB 1: GENERATOR */}
         {activeTab === 'generator' && (
-          <div className="space-y-8">
+          <div className="space-y-6 sm:space-y-8">
             
-            <div className="relative overflow-hidden rounded-[32px] h-[480px] sm:h-[540px] w-full shadow-[0_20px_60px_rgba(0,0,0,0.12)] border-4 border-white">
-              <img src={useCustomHero && customHeroUrl ? customHeroUrl : "/hero.png"} alt="Hero Banner" className="w-full h-full object-cover object-center transition-transform duration-700 hover:scale-[1.02]" />
+            {/* HERO BANNER - RESPONSIVE RATIO & FIT */}
+            <div className="relative overflow-hidden rounded-2xl sm:rounded-[32px] h-[220px] sm:h-[360px] md:h-[480px] w-full shadow-[0_20px_60px_rgba(0,0,0,0.12)] border-2 sm:border-4 border-white bg-slate-950 flex items-center justify-center">
+              <img src={useCustomHero && customHeroUrl ? customHeroUrl : "/hero.png"} alt="Hero Banner" className="w-full h-full object-contain md:object-cover object-center transition-transform duration-700 hover:scale-[1.01]" />
             </div>
 
-            <div className="rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+            {/* ACTIVE STAGE CARD */}
+            <div className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-white p-4 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6 relative overflow-hidden">
               <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#12a150]" />
 
-              <div className="flex flex-col md:flex-row items-start md:items-center gap-5">
-                <div className="rounded-2xl border border-[#12a150]/20 bg-[#12a150]/10 px-4 py-2 text-center shrink-0">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#12a150] block">Active Stage</span>
-                  <span className="text-xl font-bold font-mono text-[#12a150] mt-0.5 block">0{generatorStep} / 02</span>
+              <div className="flex items-start sm:items-center gap-3 sm:gap-5">
+                <div className="rounded-2xl border border-[#12a150]/20 bg-[#12a150]/10 px-3 py-1.5 sm:px-4 sm:py-2 text-center shrink-0">
+                  <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider text-[#12a150] block">Active Stage</span>
+                  <span className="text-lg sm:text-xl font-bold font-mono text-[#12a150] mt-0.5 block">0{generatorStep} / 02</span>
                 </div>
 
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-[#12a150] animate-pulse" />
-                    {generatorStep === 1 ? 'Upload Base Certificate Files' : 'Compile Batch Certificate Run'}
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-[#12a150] animate-pulse shrink-0" />
+                    <span className="leading-snug">{generatorStep === 1 ? 'Upload Base Certificate Files' : 'Compile Batch Certificate Run'}</span>
                   </h3>
-                  <p className="mt-1.5 text-xs text-slate-600 leading-relaxed max-w-3xl">
+                  <p className="mt-1 text-[11px] sm:text-xs text-slate-600 leading-relaxed max-w-3xl">
                     {generatorStep === 1
-                      ? 'Note: Select the base PowerPoint (.pptx) certificate template and the participant details Excel sheet (.xlsx).'
-                      : 'Note: Verify participant record mappings and compile native High-DPI PowerPoint certificates.'
+                      ? 'Select the base PowerPoint (.pptx) certificate template and participant details Excel sheet (.xlsx).'
+                      : 'Verify participant record mappings and compile native High-DPI PowerPoint certificates.'
                     }
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Status</span>
-                <div className="flex items-center gap-2 bg-[#12a150] px-4 py-2 rounded-full shadow-md select-none">
+                <div className="flex items-center gap-2 bg-[#12a150] px-3 py-1.5 sm:px-4 sm:py-2 rounded-full shadow-md select-none">
                   <div className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
                   <span className="text-[10px] font-bold text-white uppercase tracking-wider">READY</span>
                 </div>
@@ -1983,25 +2021,25 @@ export default function UnifiedCseaCopterCodeApp() {
 
             {/* STAGE 1 DARK UPLOAD CONTAINER (#030712) */}
             {generatorStep === 1 && (
-              <div className="rounded-[32px] border border-zinc-800 bg-[#030712] p-8 shadow-2xl text-white space-y-8">
+              <div className="rounded-2xl sm:rounded-[32px] border border-zinc-800 bg-[#030712] p-4 sm:p-6 md:p-8 shadow-2xl text-white space-y-6 sm:space-y-8">
                 <div className="flex justify-between items-center">
-                  <h2 className="font-sans text-2xl font-bold text-white">
+                  <h2 className="font-sans text-lg sm:text-2xl font-bold text-white">
                     Upload Base <span className="text-blue-500">PowerPoint Certificate Template</span>
                   </h2>
                 </div>
 
                 {/* SINGLE CERTIFICATE TEMPLATE UPLOAD BOX */}
-                <div className="relative group border-2 border-dashed border-zinc-800 bg-[#0b0f19] hover:border-zinc-700 hover:bg-[#121626] rounded-2xl p-8 transition-all min-h-[160px] flex flex-col items-center justify-center text-center">
+                <div className="relative group border-2 border-dashed border-zinc-800 bg-[#0b0f19] hover:border-zinc-700 hover:bg-[#121626] rounded-2xl p-4 sm:p-8 transition-all min-h-[140px] sm:min-h-[160px] flex flex-col items-center justify-center text-center">
                   {isTemplateUploading ? (
                     <div className="flex flex-col items-center">
-                      <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-2" />
+                      <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 animate-spin text-blue-500 mb-2" />
                       <p className="text-xs font-extrabold text-blue-400">Uploading PPTX Template...</p>
                     </div>
                   ) : (
                     <>
-                      <FileText className="w-12 h-12 mb-3 text-zinc-500 group-hover:text-blue-500 transition-colors" />
-                      <p className="text-sm font-bold text-white mb-1">1. Certificate Base Template (.pptx)</p>
-                      <p className="text-xs text-zinc-400">Drag & drop your WORKSHOP.pptx PowerPoint template file here</p>
+                      <FileText className="w-10 h-10 sm:w-12 sm:h-12 mb-2 sm:mb-3 text-zinc-500 group-hover:text-blue-500 transition-colors" />
+                      <p className="text-xs sm:text-sm font-bold text-white mb-1">1. Certificate Base Template (.pptx)</p>
+                      <p className="text-[11px] sm:text-xs text-zinc-400">Drag & drop your WORKSHOP.pptx PowerPoint template file here</p>
                       <input type="file" accept=".pptx,.html,.htm" onChange={handleTemplateFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                     </>
                   )}
@@ -2014,23 +2052,23 @@ export default function UnifiedCseaCopterCodeApp() {
                 </div>
 
                 {/* Bottom Row: Excel Dropzone & Unfilled Batch Release Details */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-4 border-t border-zinc-800/80">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 pt-4 border-t border-zinc-800/80">
                   
                   {/* Excel Upload Dropzone */}
-                  <div className="lg:col-span-7 relative group border-2 border-dashed border-zinc-800 bg-[#0b0f19] hover:border-zinc-700 p-8 rounded-2xl flex flex-col items-center justify-center text-center">
+                  <div className="lg:col-span-7 relative group border-2 border-dashed border-zinc-800 bg-[#0b0f19] hover:border-zinc-700 p-4 sm:p-8 rounded-2xl flex flex-col items-center justify-center text-center">
                     {isExcelParsing ? (
                       <div className="flex flex-col items-center py-4">
-                        <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-2" />
+                        <Loader2 className="w-8 h-8 sm:w-10 sm:h-10 animate-spin text-blue-500 mb-2" />
                         <p className="text-xs font-extrabold text-blue-400">Parsing Participant Excel Sheet...</p>
                       </div>
                     ) : (
                       <>
-                        <FileText className="w-12 h-12 text-blue-500 mb-3" />
-                        <p className="text-sm font-bold text-white mb-1">2. Participant Details Sheet (.xlsx)</p>
-                        <p className="text-xs text-zinc-400 mb-3">
+                        <FileText className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 mb-2 sm:mb-3" />
+                        <p className="text-xs sm:text-sm font-bold text-white mb-1">2. Participant Details Sheet (.xlsx)</p>
+                        <p className="text-[11px] sm:text-xs text-zinc-400 mb-3">
                           {excelResult ? `${excelResult.fileName} (${excelResult.totalRows} Rows)` : 'Drag & drop your Excel sheet here'}
                         </p>
-                        <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center space-x-2">
+                        <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center space-x-2">
                           <Upload className="w-4 h-4" />
                           <span>Browse Files</span>
                           <input type="file" accept=".xlsx, .csv" onChange={handleFileUpload} className="hidden" />
@@ -2039,9 +2077,9 @@ export default function UnifiedCseaCopterCodeApp() {
                     )}
                   </div>
 
-                  {/* Batch Release Details Form (Unfilled By Default) */}
-                  <div className="lg:col-span-5 bg-[#0b0f19] border border-zinc-800 p-6 rounded-2xl space-y-4">
-                    <h3 className="text-sm font-bold text-white border-b border-zinc-800 pb-3">
+                  {/* Batch Release Details Form */}
+                  <div className="lg:col-span-5 bg-[#0b0f19] border border-zinc-800 p-4 sm:p-6 rounded-2xl space-y-4">
+                    <h3 className="text-xs sm:text-sm font-bold text-white border-b border-zinc-800 pb-3">
                       3. Batch Release Details
                     </h3>
 
@@ -2055,7 +2093,7 @@ export default function UnifiedCseaCopterCodeApp() {
                           value={eventId}
                           onChange={(e) => setEventId(e.target.value)}
                           placeholder="e.g. R - Code"
-                          className="w-full bg-[#121626] border border-zinc-800 text-white text-xs p-3 rounded-xl focus:outline-none focus:border-blue-500 font-medium"
+                          className="w-full bg-[#121626] border border-zinc-800 text-white text-xs p-2.5 sm:p-3 rounded-xl focus:outline-none focus:border-blue-500 font-medium"
                         />
                         <div className="flex items-center space-x-1.5 mt-1.5 text-[10px] text-emerald-400/90 font-medium">
                           <span>✨</span>
@@ -2063,7 +2101,7 @@ export default function UnifiedCseaCopterCodeApp() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-[9px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1">
                             EVENT DATE
@@ -2120,23 +2158,23 @@ export default function UnifiedCseaCopterCodeApp() {
 
             {/* STAGE 02: VERIFY EXCEL DATA & GENERATE CERTIFICATES BATCH */}
             {generatorStep === 2 && (
-              <div className="space-y-8">
+              <div className="space-y-6 sm:space-y-8">
                 
                 {/* BATCH SUMMARY & REGISTERED EVENT BADGE */}
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                <div className="bg-white p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm space-y-4 sm:space-y-6">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-100 pb-4 sm:pb-5">
                     <div>
-                      <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider block">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider block">
                         STAGE 02 VERIFY EXCEL DETAILS & GENERATE
                       </span>
-                      <h2 className="text-2xl font-extrabold text-slate-900 mt-0.5">
+                      <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-0.5">
                         {eventId || 'Batch Certificates'}
                       </h2>
                     </div>
 
-                    <div className="flex items-center space-x-3">
-                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 font-extrabold px-4 py-2 rounded-full text-xs flex items-center space-x-1.5">
-                        <Check className="w-4 h-4 stroke-[3]" />
+                    <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 font-extrabold px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs flex items-center space-x-1.5 shrink-0">
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
                         <span>Event Registered in DB</span>
                       </span>
 
@@ -2144,7 +2182,7 @@ export default function UnifiedCseaCopterCodeApp() {
                       <button
                         onClick={handleGenerateCertificatesBatch}
                         disabled={isGeneratingBatch}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-8 py-3.5 rounded-2xl text-xs uppercase tracking-wider shadow-xl transition-all flex items-center space-x-2 disabled:opacity-50"
+                        className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-5 sm:px-8 py-3 sm:py-3.5 rounded-xl sm:rounded-2xl text-xs uppercase tracking-wider shadow-xl transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
                       >
                         {isGeneratingBatch ? (
                           <>
@@ -2162,53 +2200,51 @@ export default function UnifiedCseaCopterCodeApp() {
                   </div>
 
                   {/* BATCH METRICS GRID */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                    <div className="bg-slate-50 p-4 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
                         TOTAL EXCEL RECORDS
                       </span>
-                      <span className="text-3xl font-black text-slate-900 font-mono mt-1 block">
+                      <span className="text-2xl sm:text-3xl font-black text-slate-900 font-mono mt-1 block">
                         {excelResult?.totalRows || 0} Rows
                       </span>
                     </div>
 
-
-
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                    <div className="bg-slate-50 p-4 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
                         EVENT DATE
                       </span>
-                      <span className="text-base font-extrabold text-slate-800 font-mono mt-1 block">
+                      <span className="text-sm sm:text-base font-extrabold text-slate-800 font-mono mt-1 block">
                         {eventDate || 'Not set'}
                       </span>
                     </div>
 
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                    <div className="bg-slate-50 p-4 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
                         CERTIFICATE ISSUE DATE
                       </span>
-                      <span className="text-base font-extrabold text-slate-800 font-mono mt-1 block">
+                      <span className="text-sm sm:text-base font-extrabold text-slate-800 font-mono mt-1 block">
                         {issueDate || 'Not set'}
                       </span>
                     </div>
                   </div>
 
                   {batchGenSuccessMsg && (
-                    <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold text-xs rounded-2xl flex items-center space-x-2">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <div className="p-3 sm:p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold text-xs rounded-xl sm:rounded-2xl flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 shrink-0" />
                       <span>{batchGenSuccessMsg}</span>
                     </div>
                   )}
                 </div>
 
                 {/* VERIFY UPLOADED EXCEL DATA TABLE */}
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">
                     Verify Uploaded Excel Participant Data ({excelResult?.totalRows || 0} Rows)
                   </h3>
                   
-                  <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                    <table className="w-full text-left text-xs font-medium border-collapse">
+                  <div className="overflow-x-auto rounded-xl sm:rounded-2xl border border-slate-200 -mx-1 sm:mx-0">
+                    <table className="w-full text-left text-xs font-medium border-collapse min-w-[700px]">
                       <thead>
                         <tr className="bg-slate-100 border-b border-slate-200 text-[10px] font-black uppercase text-slate-600">
                           <th className="py-3 px-4">#</th>
@@ -2265,30 +2301,30 @@ export default function UnifiedCseaCopterCodeApp() {
 
         {/* TAB 2: CERTIFICATES (COPTERCODE ANALYTICS & 5 DYNAMIC FILTERS UI) */}
         {activeTab === 'history' && (
-          <div className="space-y-8">
+          <div className="space-y-6 sm:space-y-8">
             
             {/* TOP HEADER ROW WITH REFRESH BUTTON */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-[11px] font-black uppercase tracking-widest text-slate-400">
                 CERTIFICATE & EVENT ANALYTICS
               </h2>
               
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 {historyCerts.some(c => c.emailStatus === 'pending' || !c.emailStatus) && (
                   <button
                     onClick={handleSendAllPendingEmails}
                     disabled={isBatchSendingEmails || isDbLoading}
-                    className="flex items-center space-x-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition-all shadow-md disabled:opacity-50"
+                    className="flex-1 sm:flex-initial flex items-center justify-center space-x-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs transition-all shadow-md disabled:opacity-50"
                   >
                     {isBatchSendingEmails ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin text-white" />
-                        <span>Sending Emails... ({batchEmailProgress.current} / {batchEmailProgress.total})</span>
+                        <span>Sending ({batchEmailProgress.current}/{batchEmailProgress.total})</span>
                       </>
                     ) : (
                       <>
                         <Send className="w-4 h-4" />
-                        <span>Send All Pending Emails ({historyCerts.filter(c => c.emailStatus === 'pending' || !c.emailStatus).length})</span>
+                        <span>Send Pending ({historyCerts.filter(c => c.emailStatus === 'pending' || !c.emailStatus).length})</span>
                       </>
                     )}
                   </button>
@@ -2297,7 +2333,7 @@ export default function UnifiedCseaCopterCodeApp() {
                 <button
                   onClick={loadDatabaseRecords}
                   disabled={isDbLoading || isBatchSendingEmails}
-                  className="flex items-center space-x-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition-all shadow-md disabled:opacity-50"
+                  className="flex items-center justify-center space-x-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-extrabold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs transition-all shadow-md disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${isDbLoading ? 'animate-spin' : ''}`} />
                   <span>{isDbLoading ? 'Refreshing...' : 'Refresh'}</span>
@@ -2306,41 +2342,41 @@ export default function UnifiedCseaCopterCodeApp() {
             </div>
 
             {/* LIVE SYNC ANALYTICS CARDS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               
               {/* PURPLE GRADIENT CARD (LIVE SYNC COUNT) */}
-              <div className="relative overflow-hidden bg-gradient-to-r from-[#635bfc] to-[#8b5cf6] rounded-[28px] p-7 text-white shadow-xl flex flex-col justify-between min-h-[160px]">
+              <div className="relative overflow-hidden bg-gradient-to-r from-[#635bfc] to-[#8b5cf6] rounded-2xl sm:rounded-[28px] p-5 sm:p-7 text-white shadow-xl flex flex-col justify-between min-h-[140px] sm:min-h-[160px]">
                 <div className="absolute -right-4 -bottom-6 opacity-15 pointer-events-none">
-                  <Users className="w-48 h-48 text-white" />
+                  <Users className="w-36 h-36 sm:w-48 sm:h-48 text-white" />
                 </div>
                 <div>
-                  <span className="text-[11px] font-extrabold uppercase tracking-widest text-indigo-100 block">
+                  <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-widest text-indigo-100 block">
                     TOTAL UNIQUE PARTICIPANTS
                   </span>
-                  <span className="text-5xl font-black tracking-tight mt-2 block font-mono">
+                  <span className="text-4xl sm:text-5xl font-black tracking-tight mt-1 sm:mt-2 block font-mono">
                     {historyCerts.length}
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5 text-xs text-indigo-100 font-bold mt-4">
-                  <Zap className="w-4 h-4 text-amber-300" />
-                  <span>Live synced with Database ({historyCerts.length} Records)</span>
+                <div className="flex items-center space-x-1.5 text-[11px] sm:text-xs text-indigo-100 font-bold mt-3 sm:mt-4">
+                  <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300 shrink-0" />
+                  <span>Live synced ({historyCerts.length} Records)</span>
                 </div>
               </div>
 
               {/* TOTAL EVENTS ANALYTICS CARD */}
-              <div className="bg-white rounded-[28px] border border-slate-200 p-7 shadow-sm flex flex-col justify-between min-h-[160px] relative">
+              <div className="bg-white rounded-2xl sm:rounded-[28px] border border-slate-200 p-5 sm:p-7 shadow-sm flex flex-col justify-between min-h-[140px] sm:min-h-[160px] relative">
                 <div>
-                  <span className="text-[11px] font-extrabold uppercase tracking-widest text-indigo-600 block">
+                  <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-widest text-indigo-600 block">
                     TOTAL EVENTS
                   </span>
-                  <span className="text-5xl font-black text-slate-900 tracking-tight mt-2 block font-mono">
+                  <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight mt-1 sm:mt-2 block font-mono">
                     {registeredEvents.length > 0
                       ? registeredEvents.length
                       : (new Set(historyCerts.map(c => c.eventId || c.eventName).filter(Boolean)).size || (historyCerts.length > 0 ? 1 : 0))}
                   </span>
                 </div>
-                <div className="flex items-center space-x-1.5 text-xs text-slate-500 font-semibold mt-4">
-                  <Calendar className="w-4 h-4 text-indigo-500" />
+                <div className="flex items-center space-x-1.5 text-[11px] sm:text-xs text-slate-500 font-semibold mt-3 sm:mt-4">
+                  <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-500 shrink-0" />
                   <span>Registered across all events</span>
                 </div>
               </div>
@@ -2348,30 +2384,30 @@ export default function UnifiedCseaCopterCodeApp() {
             </div>
 
             {/* SEARCH BAR & ACTION BUTTONS CONTAINER */}
-            <div className="bg-white rounded-[28px] border border-slate-300 p-6 shadow-sm space-y-6">
+            <div className="bg-white rounded-2xl sm:rounded-[28px] border border-slate-300 p-4 sm:p-6 shadow-sm space-y-4 sm:space-y-6">
               
               {/* TOP SEARCH & BUTTONS ROW */}
-              <div className="flex flex-col lg:flex-row items-center gap-4">
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 sm:gap-4">
                 
                 {/* SEARCH INPUT */}
                 <div className="relative flex-1 w-full">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-4 top-3.5" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
-                    placeholder="Search by intern name, college, email, or credential code..."
+                    placeholder="Search by name, college, email, code..."
                     value={historyQuery}
                     onChange={(e) => setHistoryQuery(e.target.value)}
-                    className="w-full pl-11 pr-4 py-2.5 rounded-full border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    className="w-full pl-10 pr-4 py-2 sm:py-2.5 rounded-full border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                   />
                 </div>
 
-                {/* DYNAMIC ACTION BUTTONS WITH LOADING SPINNERS */}
-                <div className="flex items-center gap-3 w-full lg:w-auto shrink-0 overflow-x-auto">
+                {/* DYNAMIC ACTION BUTTONS */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 shrink-0">
 
                   <button
                     onClick={handleExportZip}
                     disabled={isExportingZip}
-                    className="flex items-center space-x-2 bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition-all shadow-sm whitespace-nowrap disabled:opacity-50"
+                    className="flex-1 sm:flex-initial flex items-center justify-center space-x-2 bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-extrabold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs transition-all shadow-sm whitespace-nowrap disabled:opacity-50"
                   >
                     {isExportingZip ? (
                       <>
@@ -2381,7 +2417,7 @@ export default function UnifiedCseaCopterCodeApp() {
                     ) : (
                       <>
                         <Download className="w-4 h-4" />
-                        <span>{selectedCertIds.length > 0 ? 'Download Selected ZIP' : 'Download Filtered ZIP'}</span>
+                        <span>{selectedCertIds.length > 0 ? 'Download ZIP' : 'Download ZIP'}</span>
                       </>
                     )}
                   </button>
@@ -2390,17 +2426,17 @@ export default function UnifiedCseaCopterCodeApp() {
                     <button
                       onClick={handleSendSelectedEmails}
                       disabled={isBatchSendingEmails}
-                      className="flex items-center space-x-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition-all shadow-sm whitespace-nowrap disabled:opacity-50"
+                      className="flex-1 sm:flex-initial flex items-center justify-center space-x-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-extrabold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs transition-all shadow-sm whitespace-nowrap disabled:opacity-50"
                     >
                       {isBatchSendingEmails ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin text-white" />
-                          <span>Sending ({batchEmailProgress.current} / {batchEmailProgress.total})...</span>
+                          <span>Sending ({batchEmailProgress.current}/{batchEmailProgress.total})</span>
                         </>
                       ) : (
                         <>
                           <Send className="w-4 h-4" />
-                          <span>Send Selected Emails ({selectedCertIds.length})</span>
+                          <span>Send Selected ({selectedCertIds.length})</span>
                         </>
                       )}
                     </button>
@@ -2408,25 +2444,25 @@ export default function UnifiedCseaCopterCodeApp() {
 
                   <button
                     onClick={resetCertFilters}
-                    className="flex items-center space-x-2 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-extrabold px-5 py-2.5 rounded-xl text-xs transition-all shadow-sm whitespace-nowrap"
+                    className="flex items-center justify-center space-x-1.5 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-extrabold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs transition-all shadow-sm whitespace-nowrap"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>Reset Filters</span>
+                    <span className="hidden sm:inline">Reset Filters</span>
                   </button>
                 </div>
 
               </div>
 
-              {/* FIVE DYNAMIC FILTERS ROW: EVENT, DEPARTMENT, COLLEGE NAME, YEAR OF STUDY, SECTION */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 pt-2">
+              {/* FIVE DYNAMIC FILTERS ROW */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3 pt-2">
                 <div>
-                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
                     EVENT
                   </label>
                   <select
                     value={certEventFilter}
                     onChange={(e) => setCertEventFilter(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl p-2 sm:p-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:border-indigo-500"
                   >
                     <option>All Events</option>
                     {certEventOptions.map((opt, idx) => (

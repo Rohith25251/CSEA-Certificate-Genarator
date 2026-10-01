@@ -666,15 +666,15 @@ export default function InvitationTab() {
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4 sm:py-8">
       {/* Title block */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 pb-6 border-b border-slate-200">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 sm:mb-8 pb-4 sm:pb-6 border-b border-slate-200">
         <div>
-          <h1 className="text-3xl font-extrabold text-[#082849] flex items-center gap-2">
-            <Mail className="w-8 h-8 text-indigo-600 animate-pulse" />
-            HTML Invitation Dispatcher
+          <h1 className="text-xl sm:text-3xl font-extrabold text-[#082849] flex items-center gap-2">
+            <Mail className="w-6 h-6 sm:w-8 sm:h-8 text-indigo-600 animate-pulse shrink-0" />
+            <span>HTML Invitation Dispatcher</span>
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Upload receiver details, paste your HTML email body, preview dynamic fields, and batch dispatch invites.
           </p>
         </div>
@@ -682,7 +682,7 @@ export default function InvitationTab() {
       </div>
 
       {/* Stepper Wizard Indicator */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-8 flex justify-between items-center max-w-3xl mx-auto">
+      <div className="bg-white p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm mb-6 sm:mb-8 flex justify-between items-center max-w-3xl mx-auto overflow-x-auto no-scrollbar">
         {[
           { num: 1, title: 'Upload Sheet' },
           { num: 2, title: 'HTML Template' },
@@ -693,7 +693,7 @@ export default function InvitationTab() {
             key={s.num}
             onClick={() => rows.length > 0 && setStage(s.num)}
             disabled={rows.length === 0 && s.num > 1}
-            className={`flex items-center space-x-2.5 transition-all group ${
+            className={`flex items-center space-x-1.5 sm:space-x-2.5 transition-all group shrink-0 ${
               stage === s.num
                 ? 'text-indigo-600 font-bold'
                 : rows.length > 0
@@ -701,7 +701,7 @@ export default function InvitationTab() {
                 : 'text-slate-300 cursor-not-allowed'
             }`}
           >
-            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all ${
+            <span className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[11px] sm:text-xs font-black transition-all ${
               stage === s.num
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
                 : stage > s.num
@@ -710,13 +710,13 @@ export default function InvitationTab() {
             }`}>
               {s.num}
             </span>
-            <span className="text-xs hidden sm:inline">{s.title}</span>
+            <span className="text-[11px] sm:text-xs hidden sm:inline">{s.title}</span>
           </button>
         ))}
       </div>
 
       {/* WIZARD CONTAINER */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
         
         {/* Main Work Area (Left 2 cols) */}
         <div className="lg:col-span-2 space-y-6">

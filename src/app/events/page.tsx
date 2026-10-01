@@ -38,22 +38,22 @@ export default function EventsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-4 sm:py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 pb-6 border-b border-slate-200">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 sm:mb-8 pb-4 sm:pb-6 border-b border-slate-200 gap-3">
           <div>
-            <h1 className="text-3xl font-extrabold text-[#082849]">CSEA Events Directory</h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <h1 className="text-xl sm:text-3xl font-extrabold text-[#082849]">CSEA Events Directory</h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
               Manage certificate templates and batch generation per event category
             </p>
           </div>
 
-          <div className="mt-4 md:mt-0">
+          <div className="mt-2 md:mt-0">
             <Link
               href="/"
-              className="inline-flex items-center space-x-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-[#082849] font-extrabold px-5 py-2.5 rounded-xl shadow-md hover:from-yellow-400 hover:to-amber-400 text-xs uppercase tracking-wider transition-all"
+              className="inline-flex items-center space-x-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-[#082849] font-extrabold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-md hover:from-yellow-400 hover:to-amber-400 text-xs uppercase tracking-wider transition-all"
             >
               <Sparkles className="w-4 h-4" />
               <span>Launch Generator</span>

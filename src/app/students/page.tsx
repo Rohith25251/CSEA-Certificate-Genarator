@@ -35,19 +35,19 @@ export default function StudentsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-4 sm:py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 pb-6 border-b border-slate-200">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 sm:mb-8 pb-4 sm:pb-6 border-b border-slate-200 gap-3">
           <div>
-            <h1 className="text-3xl font-extrabold text-[#082849]">Master Participant Directory</h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <h1 className="text-xl sm:text-3xl font-extrabold text-[#082849]">Master Participant Directory</h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
               Registered students & participation records synced live from Supabase & Excel uploads
             </p>
           </div>
 
-          <div className="mt-4 md:mt-0 flex items-center space-x-3">
+          <div className="mt-2 md:mt-0 flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               onClick={loadStudentData}
               className="inline-flex items-center space-x-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-3 py-2 rounded-xl text-xs transition-colors"
@@ -56,7 +56,7 @@ export default function StudentsPage() {
               <span>Refresh Supabase</span>
             </button>
 
-            <div className="bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs px-4 py-2 rounded-xl">
+            <div className="bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs px-3.5 py-2 rounded-xl">
               Total Records: {filteredStudents.length} Students
             </div>
           </div>
