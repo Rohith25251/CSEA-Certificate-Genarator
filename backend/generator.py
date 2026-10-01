@@ -336,40 +336,6 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
         except Exception:
             pass
 
-        # Normalize fonts slide-wide while preserving underline, bold, and italic styles
-        for p in shape.text_frame.paragraphs:
-            for r in p.runs:
-                if r.font:
-                    if r.font.name:
-                        name_lower = r.font.name.lower()
-                        if "times" in name_lower:
-                            r.font.name = "Times New Roman"
-                            if "bold" in name_lower:
-                                r.font.bold = True
-                        elif "playfair" in name_lower:
-                            r.font.name = "Playfair Display"
-                            if "bold" in name_lower:
-                                r.font.bold = True
-                        elif "tt hoves" in name_lower or "hoves" in name_lower:
-                            r.font.name = "Arial"
-                            r.font.bold = True
-                        elif "league gothic" in name_lower:
-                            r.font.name = "Impact"
-                        elif "motter" in name_lower or "corpus" in name_lower:
-                            r.font.name = "Impact"
-                            r.font.bold = True
-                        elif "poppins" in name_lower:
-                            r.font.name = "Poppins"
-
-        # Fix bottom signature labels (e.g. FACULTY IN-CHARGE, HoD/CSE) positioning below horizontal lines
-        shape_text = shape.text_frame.text.strip().upper()
-        if any(term in shape_text for term in ["FACULTY", "IN-CHARGE", "INCHARGE", "HOD", "HOD/CSE", "PRINCIPAL", "CONVENOR", "COORDINATOR"]):
-            for other in slide.shapes:
-                if other.shape_type == 1 and other.height == 0:  # Horizontal line AutoShape
-                    if abs(shape.top - other.top) < 80000 and abs(shape.left - other.left) < 800000:
-                        shape.top = other.top + 130000
-                        break
-
         for p in shape.text_frame.paragraphs:
             full_text = p.text
             if not full_text or '<<' not in full_text:
@@ -484,7 +450,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 from pptx.enum.text import PP_ALIGN
                 from reportlab.pdfgen import canvas
                 from reportlab.lib.pagesizes import A4, landscape
-                from reportlab.platypus import Paragraph, Frame
+                from reportlab.platypus import Paragraph
                 from reportlab.lib.styles import ParagraphStyle
                 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
                 from reportlab.lib.utils import ImageReader
@@ -494,7 +460,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 from reportlab.pdfbase.ttfonts import TTFont
                 from PIL import Image
 
-                # Register bundled Fonts (LeagueGothic, Poppins, PaytoneOne, Montserrat)
+                # Register bundled Fonts
                 fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
                 reg_fonts = set()
                 font_map = {
@@ -506,6 +472,12 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                     "PaytoneOne": "PaytoneOne-Regular.ttf",
                     "Righteous": "Righteous-Regular.ttf",
                     "Montserrat-Bold": "Montserrat-Bold.ttf",
+                    "Anton": "Anton-Regular.ttf",
+                    "BebasNeue": "BebasNeue-Regular.ttf",
+                    "Bungee": "Bungee-Regular.ttf",
+                    "Chonburi": "Chonburi-Regular.ttf",
+                    "Shrikhand": "Shrikhand-Regular.ttf",
+                    "TitanOne": "TitanOne-Regular.ttf"
                 }
                 for f_name, f_file in font_map.items():
                     fp = os.path.join(fonts_dir, f_file)
@@ -606,8 +578,10 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                         return "PaytoneOne" if "PaytoneOne" in reg_fonts else "Helvetica-Bold"
                     if "righteous" in fn:
                         return "Righteous" if "Righteous" in reg_fonts else "Helvetica-Bold"
-                    if "tt hoves" in fn or "hoves" in fn or "montserrat" in fn:
-                        return "Montserrat-Bold" if "Montserrat-Bold" in reg_fonts else "Helvetica-Bold"
+                    if "tt hoves" in fn or "hoves" in fn:
+                        return "Poppins-Bold" if "Poppins-Bold" in reg_fonts else "Helvetica-Bold"
+                    if "montserrat" in fn:
+                        return "Poppins-Bold" if "Poppins-Bold" in reg_fonts else "Helvetica-Bold"
                     if "poppins" in fn:
                         if is_bold:
                             return "Poppins-Bold" if "Poppins-Bold" in reg_fonts else "Helvetica-Bold"
@@ -721,13 +695,31 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
 
                     # 4. Check for text frame
                     if hasattr(shape, 'text_frame') and shape.has_text_frame and shape.text_frame.text.strip():
-                        story = []
-                        max_size = 12
-                        has_any_underline = False
+                        curr_y = top_y
                         for p in shape.text_frame.paragraphs:
                             if not p.text.strip():
                                 continue
                             p_text = ''
+
+                            # Check for paragraph line spacing
+                            spc_pts = p._p.xpath('.//a:lnSpc/a:spcPts/@val')
+                            spc_pct = p._p.xpath('.//a:lnSpc/a:spcPct/@val')
+                            paragraph_leading = None
+                            if spc_pts:
+                                paragraph_leading = int(spc_pts[0]) / 100.0
+                            elif spc_pct:
+                                paragraph_leading = None
+                            elif p.line_spacing:
+                                if isinstance(p.line_spacing, (int, float)) and p.line_spacing > 50:
+                                    paragraph_leading = p.line_spacing / 12700.0
+
+                            # Paragraph default font size
+                            def_sz_val = p._p.xpath('./a:pPr/a:defRPr/@sz')
+                            p_def_sz = (int(def_sz_val[0]) / 100.0) if def_sz_val else 18.0
+
+                            current_p_max_sz = p_def_sz
+                            has_p_underline = False
+
                             for r in p.runs:
                                 t = r.text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                                 t = t.replace('\u2011', '-')
@@ -738,9 +730,23 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                                 is_italic = bool(r.font.italic)
                                 rl_font = select_font(r.font.name, is_bold, is_italic)
 
-                                sz = r.font.size.pt if (r.font.size and hasattr(r.font.size, 'pt')) else 14
-                                if sz > max_size:
-                                    max_size = sz
+                                # Determine font size
+                                r_sz_xml = r._r.xpath('./a:rPr/@sz')
+                                spc_xml = r._r.xpath('./a:rPr/@spc')
+                                if r_sz_xml:
+                                    sz = int(r_sz_xml[0]) / 100.0
+                                elif r.font.size and hasattr(r.font.size, 'pt'):
+                                    sz = r.font.size.pt
+                                else:
+                                    sz = p_def_sz
+
+                                # If PPTX had negative character spacing (e.g. spc="-77"), slightly scale font size to 17.0pt for exact fit
+                                if spc_xml and int(spc_xml[0]) < 0 and sz == 18.0:
+                                    sz = 17.0
+
+                                if sz > current_p_max_sz:
+                                    current_p_max_sz = sz
+
                                 c_hex = '#000000'
                                 try:
                                     if r.font.color and r.font.color.type == 1:
@@ -763,7 +769,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                                 style_s = f'<font name="{rl_font}" size="{sz:.1f}" color="{c_hex}">'
                                 style_e = '</font>'
                                 if is_underlined:
-                                    has_any_underline = True
+                                    has_p_underline = True
                                     style_s += '<u>'
                                     style_e = '</u>' + style_e
                                 p_text += f'{style_s}{t}{style_e}'
@@ -776,25 +782,26 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                             elif p.alignment == PP_ALIGN.JUSTIFY:
                                 align = TA_JUSTIFY
 
+                            effective_leading = paragraph_leading if paragraph_leading else (current_p_max_sz * 1.35)
+
                             p_style = ParagraphStyle(
                                 name=f's_{uuid.uuid4().hex[:6]}',
                                 alignment=align,
-                                leading=max_size * 1.35
+                                leading=effective_leading
                             )
-                            story.append(Paragraph(p_text, p_style))
+                            para = Paragraph(p_text, p_style)
 
-                        if story:
-                            frame_h = max(h, max_size * 1.6)
-                            frame_y = top_y - frame_h
-                            f = Frame(x, frame_y, w, frame_h, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-                            
-                            # Apply dashed underline if underlined
-                            if has_any_underline:
+                            pw, ph = para.wrap(w, A4_h)
+
+                            pdf_canvas.saveState()
+                            if has_p_underline:
                                 pdf_canvas.setDash(2.5, 2.0)
                                 pdf_canvas.setLineWidth(0.75)
-                            f.addFromList(story, pdf_canvas)
-                            if has_any_underline:
-                                pdf_canvas.setDash() # reset back to solid
+
+                            para.drawOn(pdf_canvas, x, curr_y - ph)
+                            pdf_canvas.restoreState()
+
+                            curr_y -= ph
 
                 for s in slide_temp.shapes:
                     render_element(s, s.left, s.top, s.width, s.height)
