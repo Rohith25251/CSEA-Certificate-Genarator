@@ -355,6 +355,11 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                             r.font.bold = True
                         elif "league gothic" in name_lower:
                             r.font.name = "Impact"
+                        elif "motter" in name_lower or "corpus" in name_lower:
+                            r.font.name = "Impact"
+                            r.font.bold = True
+                        elif "poppins" in name_lower:
+                            r.font.name = "Poppins"
 
         # Fix bottom signature labels (e.g. FACULTY IN-CHARGE, HoD/CSE) positioning below horizontal lines
         shape_text = shape.text_frame.text.strip().upper()

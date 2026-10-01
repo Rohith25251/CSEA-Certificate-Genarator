@@ -30,7 +30,11 @@ module.exports = {
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         serif: ['Merriweather', 'serif'],
-        mono: ['Fira Code', 'monospace']
+        mono: ['Fira Code', 'monospace'],
+        poppins: ['Poppins', 'sans-serif'],
+        leagueGothic: ['"League Gothic"', 'Impact', 'sans-serif'],
+        motterCorpus: ['"ITC Motter Corpus Semicondensed"', '"ITC Motter Corpus"', '"Paytone One"', 'Impact', 'sans-serif'],
+        ttHoves: ['"TT Hoves Bold"', '"TT Hoves"', '"TT Hoves Pro"', 'Montserrat', 'sans-serif'],
       }
     },
   },
