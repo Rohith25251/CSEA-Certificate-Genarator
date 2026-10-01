@@ -25,7 +25,10 @@ except Exception as err:
 # Attempt PyMuPDF for PDF page rasterization
 has_fitz = False
 try:
-    import fitz
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
     has_fitz = True
 except Exception:
     has_fitz = False
@@ -482,6 +485,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 from reportlab.lib.utils import ImageReader
                 from reportlab.lib.colors import HexColor
                 from svglib.svglib import svg2rlg
+                from PIL import Image
 
                 # 1. Clean replacements to remove any Unicode non-breaking hyphens
                 cleaned_replacements = {}
@@ -506,6 +510,18 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 scale_x = A4_w / slide_w
                 scale_y = A4_h / slide_h
 
+                # Slide Background
+                bg_color = None
+                try:
+                    bg_el = slide_temp._element.xpath('.//p:bg//a:srgbClr')
+                    if bg_el:
+                        bg_color = f"#{bg_el[0].get('val')}"
+                except Exception:
+                    pass
+                if bg_color:
+                    pdf_canvas.setFillColor(HexColor(bg_color))
+                    pdf_canvas.rect(0, 0, A4_w, A4_h, fill=1, stroke=0)
+
                 def extract_image_bytes(shape, slide_part):
                     try:
                         if hasattr(shape, 'image') and shape.image:
@@ -521,6 +537,32 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                     except Exception:
                         pass
                     return None, ''
+
+                def get_shape_fill_color(shape):
+                    try:
+                        fills = shape._element.xpath('./*[local-name()="spPr"]/*[local-name()="solidFill"]/*[local-name()="srgbClr"]')
+                        if fills:
+                            return f"#{fills[0].get('val')}"
+                    except Exception:
+                        pass
+                    return None
+
+                def get_shape_line_color_and_width(shape):
+                    try:
+                        ln = shape._element.xpath('./*[local-name()="spPr"]/*[local-name()="ln"]')
+                        if ln:
+                            w_val = ln[0].get('w')
+                            lw = (int(w_val) / 12700.0) if w_val else 1.0
+                            clrs = ln[0].xpath('.//*[local-name()="srgbClr"]')
+                            if clrs:
+                                return f"#{clrs[0].get('val')}", lw
+                        if shape.line and shape.line.color and hasattr(shape.line.color, 'rgb') and shape.line.color.rgb:
+                            rgb = shape.line.color.rgb
+                            lw = (shape.line.width / 12700.0) if shape.line.width else 1.0
+                            return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}", lw
+                    except Exception:
+                        pass
+                    return None, 1.0
 
                 def render_element(shape, abs_left, abs_top, abs_w, abs_h):
                     # If it is a group, recurse its children with exact DrawingML group coordinate mapping
@@ -551,38 +593,62 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                     top_y = A4_h - abs_top * scale_y
                     bot_y = top_y - h
 
-                    # Check for image/picture fill
+                    # 1. Solid fill on shapes (e.g. Ivory background card)
+                    fill_hex = get_shape_fill_color(shape)
                     img_bytes, fname = extract_image_bytes(shape, slide_temp._part)
+                    
+                    if fill_hex and not img_bytes:
+                        pdf_canvas.setFillColor(HexColor(fill_hex))
+                        pdf_canvas.rect(x, bot_y, w, h, fill=1, stroke=0)
+
+                    # 2. Check for image/picture fill
                     if img_bytes:
                         try:
+                            xfrm_el = shape._element.xpath('.//*[local-name()="xfrm"]')
+                            flip_h = False
+                            flip_v = False
+                            if xfrm_el:
+                                flip_h = xfrm_el[0].get('flipH') in ['1', 'true']
+                                flip_v = xfrm_el[0].get('flipV') in ['1', 'true']
+
                             is_svg = fname.lower().endswith('.svg') or img_bytes.startswith(b'<svg') or b'<svg' in img_bytes[:200]
                             if is_svg:
                                 drawing = svg2rlg(io.BytesIO(img_bytes))
                                 sx = w / drawing.width
                                 sy = h / drawing.height
-                                drawing.scale(sx, sy)
-                                drawing.drawOn(pdf_canvas, x, bot_y)
+                                pdf_canvas.saveState()
+                                if flip_h or flip_v:
+                                    pdf_canvas.translate(x + (w if flip_h else 0), bot_y + (h if flip_v else 0))
+                                    pdf_canvas.scale(-sx if flip_h else sx, -sy if flip_v else sy)
+                                    drawing.drawOn(pdf_canvas, 0, 0)
+                                else:
+                                    drawing.scale(sx, sy)
+                                    drawing.drawOn(pdf_canvas, x, bot_y)
+                                pdf_canvas.restoreState()
                             else:
-                                img_io = io.BytesIO(img_bytes)
-                                img_reader = ImageReader(img_io)
+                                im = Image.open(io.BytesIO(img_bytes))
+                                if flip_h:
+                                    im = im.transpose(Image.FLIP_LEFT_RIGHT)
+                                if flip_v:
+                                    im = im.transpose(Image.FLIP_TOP_BOTTOM)
+                                
+                                buf = io.BytesIO()
+                                im.save(buf, format="PNG")
+                                buf.seek(0)
+                                img_reader = ImageReader(buf)
                                 pdf_canvas.drawImage(img_reader, x, bot_y, w, h, mask='auto')
                         except Exception as e:
                             print(f"[Generator] Image render error on {getattr(shape, 'name', '')}: {e}")
 
-                    # Check for line dividers
+                    # 3. Check for line dividers
                     if shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and abs_h == 0:
-                        try:
-                            if shape.line and shape.line.color and hasattr(shape.line.color, 'rgb') and shape.line.color.rgb:
-                                rgb = shape.line.color.rgb
-                                color_hex = f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
-                                lw = (shape.line.width / 12700.0) if shape.line.width else 1.0
-                                pdf_canvas.setStrokeColor(HexColor(color_hex))
-                                pdf_canvas.setLineWidth(lw)
-                                pdf_canvas.line(x, top_y, x + w, top_y)
-                        except Exception:
-                            pass
+                        line_color, lw = get_shape_line_color_and_width(shape)
+                        if line_color:
+                            pdf_canvas.setStrokeColor(HexColor(line_color))
+                            pdf_canvas.setLineWidth(lw)
+                            pdf_canvas.line(x, top_y, x + w, top_y)
 
-                    # Check for text frame
+                    # 4. Check for text frame
                     if hasattr(shape, 'text_frame') and shape.has_text_frame and shape.text_frame.text.strip():
                         story = []
                         max_size = 12
@@ -623,6 +689,10 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                                     if r.font.color and r.font.color.type == 1:
                                         rgb = r.font.color.rgb
                                         c_hex = f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
+                                    else:
+                                        r_clrs = r._r.xpath('.//*[local-name()="srgbClr"]')
+                                        if r_clrs:
+                                            c_hex = f"#{r_clrs[0].get('val')}"
                                 except Exception:
                                     pass
 
@@ -647,7 +717,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                             p_style = ParagraphStyle(
                                 name=f's_{uuid.uuid4().hex[:6]}',
                                 alignment=align,
-                                leading=max_size * 1.2
+                                leading=max_size * 1.25
                             )
                             story.append(Paragraph(p_text, p_style))
 
