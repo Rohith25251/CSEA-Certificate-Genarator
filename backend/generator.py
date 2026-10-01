@@ -489,7 +489,7 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                 from reportlab.pdfbase.ttfonts import TTFont
                 from PIL import Image
 
-                # Register bundled Google Fonts (Poppins, BebasNeue, Anton, Montserrat)
+                # Register bundled Google Fonts (Poppins, BebasNeue, PaytoneOne, Righteous, Montserrat)
                 fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
                 reg_fonts = set()
                 font_map = {
@@ -498,7 +498,8 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
                     "Poppins-Medium": "Poppins-Medium.ttf",
                     "Poppins-SemiBold": "Poppins-SemiBold.ttf",
                     "BebasNeue": "BebasNeue-Regular.ttf",
-                    "Anton": "Anton-Regular.ttf",
+                    "PaytoneOne": "PaytoneOne-Regular.ttf",
+                    "Righteous": "Righteous-Regular.ttf",
                     "Montserrat-Bold": "Montserrat-Bold.ttf",
                 }
                 for f_name, f_file in font_map.items():
@@ -587,10 +588,12 @@ def generate_single_native_pdf(pptx_template_path: str, replacements: dict, outp
 
                 def select_font(raw_font_name, is_bold, is_italic):
                     fn = (raw_font_name or "").lower()
+                    if "motter" in fn or "corpus" in fn or "paytone" in fn:
+                        return "PaytoneOne" if "PaytoneOne" in reg_fonts else "Helvetica-Bold"
+                    if "righteous" in fn:
+                        return "Righteous" if "Righteous" in reg_fonts else "Helvetica-Bold"
                     if "league gothic" in fn or "gothic" in fn or "bebas" in fn:
                         return "BebasNeue" if "BebasNeue" in reg_fonts else "Helvetica-Bold"
-                    if "motter" in fn or "corpus" in fn or "anton" in fn or "impact" in fn:
-                        return "Anton" if "Anton" in reg_fonts else "Helvetica-Bold"
                     if "tt hoves" in fn or "hoves" in fn or "montserrat" in fn:
                         return "Montserrat-Bold" if "Montserrat-Bold" in reg_fonts else "Helvetica-Bold"
                     if "poppins" in fn:
