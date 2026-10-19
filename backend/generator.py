@@ -398,6 +398,35 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                     r_last = p.runs[end_run_idx]
                     r_last.text = r_last.text[end_char_offset + 1:]
 
+    # Ensure signature blocks (FACULTY IN-CHARGE, HoD/CSE, etc.) are properly positioned below signature lines and have safe fonts
+    lines = [s for s in slide.shapes if s.shape_type == 1 and s.height == 0]
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        txt = shape.text_frame.text.lower()
+        if any(term in txt for term in ['faculty', 'hod', 'in-charge', 'in charge', 'co-ordinator', 'coordinator', 'principal', 'convenor']):
+            # Find matching horizontal signature line
+            matching_line = None
+            shape_center_x = shape.left + shape.width / 2
+            for line in lines:
+                line_center_x = line.left + line.width / 2
+                if abs(shape_center_x - line_center_x) < 500000:
+                    matching_line = line
+                    break
+
+            if matching_line:
+                # If text box collides with or sits too close to the line, move it safely below the line
+                if shape.top < matching_line.top + 150000:
+                    shape.top = matching_line.top + 260000
+
+            for p in shape.text_frame.paragraphs:
+                p.text = p.text.strip()
+                for r in p.runs:
+                    if not r.font.name or any(f in r.font.name.lower() for f in ['hoves', 'canva', 'tt ']):
+                        r.font.name = 'Arial'
+                        r.font.bold = True
+
+
 def replace_html_tokens(html_content: str, replacements: dict) -> str:
     """Replaces <<placeholder>> and {{placeholder}} in HTML content with replacement values (case-insensitive)."""
     rendered = html_content

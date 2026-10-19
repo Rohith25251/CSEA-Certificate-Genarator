@@ -179,23 +179,60 @@ export async function fetchCertificatesFromSupabase(): Promise<Certificate[]> {
 export async function saveStudentsToSupabase(students: Student[]) {
   if (!students || students.length === 0) return { success: false, data: [] };
   
-  const records = students.map(s => ({
-    register_no: String(s.registerNo || '').trim(),
-    name: String(s.name || 'Participant').trim(),
-    email: String(s.email || '').trim(),
-    phone: String(s.phone || '').trim(),
-    department: String(s.department || 'Computer Science and Engineering').trim(),
-    year_of_study: String(s.yearOfStudy || '').trim(),
-    section: String(s.section || '').trim(),
-    college_name: String(s.collegeName || 'Kongu Engineering College').trim(),
-    created_at: s.createdAt || new Date().toISOString()
-  }));
+  // Deduplicate by register_no to prevent Postgres cardinality / ON CONFLICT DO UPDATE batch violations
+  const studentMap = new Map<string, any>();
+  for (let idx = 0; idx < students.length; idx++) {
+    const s = students[idx];
+    let reg = String(s.registerNo || '').trim();
+    if (!reg) {
+      const email = String(s.email || '').trim();
+      reg = email ? `TEMP-${email.split('@')[0].toUpperCase()}` : `TEMP-${idx + 1}`;
+    }
+    const key = reg.toLowerCase();
+    if (!studentMap.has(key)) {
+      studentMap.set(key, {
+        register_no: reg,
+        name: String(s.name || 'Participant').trim(),
+        email: String(s.email || '').trim(),
+        phone: String(s.phone || '').trim(),
+        department: String(s.department || 'Computer Science and Engineering').trim(),
+        year_of_study: String(s.yearOfStudy || '').trim(),
+        section: String(s.section || '').trim(),
+        college_name: String(s.collegeName || 'Kongu Engineering College').trim(),
+        created_at: s.createdAt || new Date().toISOString()
+      });
+    } else {
+      // Merge non-empty fields
+      const existing = studentMap.get(key);
+      if (!existing.email && s.email) existing.email = String(s.email).trim();
+      if (!existing.phone && s.phone) existing.phone = String(s.phone).trim();
+      if (!existing.year_of_study && s.yearOfStudy) existing.year_of_study = String(s.yearOfStudy).trim();
+      if (!existing.section && s.section) existing.section = String(s.section).trim();
+    }
+  }
+
+  const records = Array.from(studentMap.values());
 
   try {
     const { data, error } = await supabase
       .from('students')
       .upsert(records, { onConflict: 'register_no' })
       .select();
+
+    if (error) {
+      console.warn('Batch upsert warning, retrying individually:', error.message);
+      const results: any[] = [];
+      for (const rec of records) {
+        const { data: singleData } = await supabase
+          .from('students')
+          .upsert([rec], { onConflict: 'register_no' })
+          .select();
+        if (singleData && singleData.length > 0) {
+          results.push(singleData[0]);
+        }
+      }
+      return { success: true, data: results };
+    }
 
     return { success: true, data: data || [] };
   } catch (err: any) {

@@ -60,21 +60,93 @@ def upsert_students_to_db(students_list):
     if not supabase or not students_list:
         return []
     try:
-        clean_students = []
-        for s in students_list:
-            clean_students.append({
-                "register_no": str(s.get('register_no', '')).strip(),
-                "name": str(s.get('name', 'Participant')).strip(),
-                "email": str(s.get('email', '')).strip(),
-                "phone": str(s.get('phone', '')).strip(),
-                "department": str(s.get('department', 'Computer Science and Engineering')).strip(),
-                "year_of_study": str(s.get('year_of_study', '')).strip(),
-                "section": str(s.get('section', '')).strip(),
-                "college_name": str(s.get('college_name') or 'Kongu Engineering College').strip()
-            })
-        res = supabase.table('students').upsert(clean_students, on_conflict='register_no').execute()
-        print(f"[Supabase] Successfully upserted {len(res.data or [])} students!")
-        return res.data or []
+        student_dict = {}
+        for idx, s in enumerate(students_list):
+            reg = str(s.get('register_no', '')).strip()
+            name = str(s.get('name', 'Participant')).strip()
+            email = str(s.get('email', '')).strip()
+            phone = str(s.get('phone', '')).strip()
+            dept = str(s.get('department', 'Computer Science and Engineering')).strip()
+            year = str(s.get('year_of_study', '')).strip()
+            sec = str(s.get('section', '')).strip()
+            college = str(s.get('college_name') or 'Kongu Engineering College').strip()
+
+            if not reg:
+                # If roll number is missing, create a deterministic or unique fallback
+                if email:
+                    clean_prefix = re.sub(r'[^a-zA-Z0-9]', '', email.split('@')[0])
+                    reg = f"TEMP-{clean_prefix.upper()}"
+                else:
+                    reg = f"TEMP-{idx+1:04d}"
+
+            reg_key = reg.lower()
+            if reg_key in student_dict:
+                existing = student_dict[reg_key]
+                # If this entry is for the same student (same name/email or one is empty), enrich fields
+                same_person = (
+                    not existing['email'] or not email or existing['email'].lower() == email.lower()
+                    or existing['name'].lower() == name.lower()
+                )
+                if same_person:
+                    if email and not existing['email']:
+                        existing['email'] = email
+                    if phone and not existing['phone']:
+                        existing['phone'] = phone
+                    if year and not existing['year_of_study']:
+                        existing['year_of_study'] = year
+                    if sec and not existing['section']:
+                        existing['section'] = sec
+                    if name != 'Participant' and existing['name'] == 'Participant':
+                        existing['name'] = name
+                else:
+                    # Different person mistakenly assigned the same roll number in Excel
+                    reg = f"{reg}-{idx+1}"
+                    reg_key = reg.lower()
+                    student_dict[reg_key] = {
+                        "register_no": reg,
+                        "name": name,
+                        "email": email,
+                        "phone": phone,
+                        "department": dept,
+                        "year_of_study": year,
+                        "section": sec,
+                        "college_name": college
+                    }
+            else:
+                student_dict[reg_key] = {
+                    "register_no": reg,
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
+                    "department": dept,
+                    "year_of_study": year,
+                    "section": sec,
+                    "college_name": college
+                }
+
+        clean_students = list(student_dict.values())
+
+        # Batch upsert in chunks to ensure no request exceeds payload limits
+        chunk_size = 50
+        upserted_data = []
+        for i in range(0, len(clean_students), chunk_size):
+            chunk = clean_students[i:i + chunk_size]
+            try:
+                res = supabase.table('students').upsert(chunk, on_conflict='register_no').execute()
+                if res.data:
+                    upserted_data.extend(res.data)
+            except Exception as chunk_err:
+                print(f"[Supabase] Chunk upsert warning: {chunk_err}. Retrying row-by-row...")
+                for item in chunk:
+                    try:
+                        single_res = supabase.table('students').upsert([item], on_conflict='register_no').execute()
+                        if single_res.data:
+                            upserted_data.extend(single_res.data)
+                    except Exception as single_err:
+                        print(f"[Supabase] Single student upsert error for {item.get('register_no')}: {single_err}")
+
+        print(f"[Supabase] Successfully upserted {len(upserted_data)} students!")
+        return upserted_data
     except Exception as e:
         print(f"[Supabase] Failed to upsert students: {e}")
         return []
@@ -97,21 +169,38 @@ def upsert_certificates_to_db(certs_list, inserted_students=None):
                 "event_date": ev_date or "2026-09-21"
             })
 
-        # 2. Build student lookup dictionary (register_no -> uuid)
+        # 2. Build multi-tier student lookup dictionary
         student_map = {}
+        email_map = {}
+        name_map = {}
+
         if inserted_students:
             for s in inserted_students:
                 reg = str(s.get('register_no', '')).strip().lower()
+                em = str(s.get('email', '')).strip().lower()
+                nm = str(s.get('name', '')).strip().lower()
                 sid = s.get('id')
-                if reg and sid:
-                    student_map[reg] = sid
+                if sid:
+                    if reg:
+                        student_map[reg] = sid
+                    if em:
+                        email_map[em] = sid
+                    if nm:
+                        name_map[nm] = sid
 
         db_students = get_students_from_db()
         for s in db_students:
             reg = str(s.get('register_no', '')).strip().lower()
+            em = str(s.get('email', '')).strip().lower()
+            nm = str(s.get('name', '')).strip().lower()
             sid = s.get('id')
-            if reg and sid:
-                student_map[reg] = sid
+            if sid:
+                if reg:
+                    student_map[reg] = sid
+                if em:
+                    email_map[em] = sid
+                if nm:
+                    name_map[nm] = sid
 
         clean_certs = []
         for c in certs_list:
@@ -123,12 +212,15 @@ def upsert_certificates_to_db(certs_list, inserted_students=None):
             elif st_id.lower() in student_map:
                 valid_uuid = student_map[st_id.lower()]
 
-            if not valid_uuid and db_students:
+            if not valid_uuid:
+                s_email = str(c.get('student_email', '')).strip().lower()
+                if s_email in email_map:
+                    valid_uuid = email_map[s_email]
+
+            if not valid_uuid:
                 s_name = str(c.get('student_name', '')).strip().lower()
-                for s in db_students:
-                    if str(s.get('name', '')).strip().lower() == s_name:
-                        valid_uuid = s.get('id')
-                        break
+                if s_name in name_map:
+                    valid_uuid = name_map[s_name]
 
             clean_certs.append({
                 "student_id": valid_uuid,
