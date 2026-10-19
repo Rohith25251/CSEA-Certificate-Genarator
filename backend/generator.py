@@ -426,6 +426,60 @@ def replace_tokens_in_pptx_slide(slide, replacements: dict):
                         r.font.name = 'Arial'
                         r.font.bold = True
 
+    # Dynamic auto-fit: If content length is too large, reduce font size and line spacing, and adjust position to prevent any overlap
+    from pptx.util import Pt
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        for p in shape.text_frame.paragraphs:
+            full_text = p.text.strip()
+            if not full_text:
+                continue
+
+            # Exclude header titles, banners, or short text
+            if len(full_text) < 40 or 'certificate of' in full_text.lower():
+                continue
+
+            # Identify award body paragraph (e.g. "This certificate is awarded to...")
+            is_award_body = any(phrase in full_text.lower() for phrase in [
+                'awarded to', 'presented to', 'certifies that', 'participated in',
+                'presenting a paper', 'presenting a project'
+            ])
+
+            if is_award_body:
+                L = len(full_text)
+                orig_top = shape.top
+                if L > 360:
+                    target_font_sz = 13.5
+                    target_line_spc = 21.0
+                    shape.top = min(orig_top, 3980000)
+                elif L > 310:
+                    target_font_sz = 14.5
+                    target_line_spc = 23.5
+                    shape.top = min(orig_top, 4050000)
+                elif L > 260:
+                    target_font_sz = 16.0
+                    target_line_spc = 26.5
+                    shape.top = min(orig_top, 4120000)
+                else:
+                    target_font_sz = 17.5
+                    target_line_spc = 30.0
+                    shape.top = orig_top
+
+                # Set line spacing in OpenXML so PowerPoint renders proper line height
+                lnSpc_pts = p._p.xpath('.//a:lnSpc/a:spcPts')
+                if lnSpc_pts:
+                    lnSpc_pts[0].set('val', str(int(target_line_spc * 100)))
+
+                for r in p.runs:
+                    r.font.size = Pt(target_font_sz)
+            elif shape.shape_type == 17: # Standalone TEXT_BOX with very long title/name
+                if len(full_text) > 60:
+                    for r in p.runs:
+                        if r.font and r.font.size and r.font.size.pt > 16:
+                            r.font.size = Pt(max(13.5, r.font.size.pt * 0.75))
+
+
 
 def replace_html_tokens(html_content: str, replacements: dict) -> str:
     """Replaces <<placeholder>> and {{placeholder}} in HTML content with replacement values (case-insensitive)."""
