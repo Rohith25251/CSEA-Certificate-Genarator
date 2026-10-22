@@ -116,27 +116,39 @@ def generate_certificate_email_html(
             "Date": event_date,
             "Event Date": event_date,
             "hero_src": hero_src,
-            "logo_src": logo_src
+            "EMAIL_HERO_IMAGE_URL": hero_src,
+            "hero_img_url": hero_src,
+            "hero_url": hero_src,
+            "HERO_URL": hero_src,
+            "logo_src": logo_src,
+            "EMAIL_LOGO_IMAGE_URL": logo_src,
+            "logo_img_url": logo_src,
+            "logo_url": logo_src,
+            "LOGO_URL": logo_src
         }
         for k, v in replacements.items():
             rendered = rendered.replace(f"{{{k}}}", str(v))
             rendered = rendered.replace(f"{{{{{k}}}}}", str(v))
             rendered = rendered.replace(f"<<{k}>>", str(v))
 
-        # Replace default URL instances if custom hero/logo is set
-        if hero_src and hero_src != default_hero_src:
-            rendered = rendered.replace(default_hero_src, hero_src)
+        # Always replace localhost/relative image instances with live public URLs
+        if hero_src:
             rendered = rendered.replace("/hero.png", hero_src)
+            rendered = rendered.replace("/email_hero.png", hero_src)
             rendered = rendered.replace("http://localhost:3000/hero.png", hero_src)
             rendered = rendered.replace("http://localhost:3000/email_hero.png", hero_src)
+            if hero_src != default_hero_src:
+                rendered = rendered.replace(default_hero_src, hero_src)
             rendered = re.sub(r'(<img[^>]*?alt=["\'](?:CSEA Header Hero|Hero Banner|Hero Image)["\'][^>]*?src=["\'])[^"\']+["\']', rf'\g<1>{hero_src}"', rendered, flags=re.IGNORECASE)
             rendered = re.sub(r'(<img[^>]*?src=["\'])[^"\']+["\']([^>]*?alt=["\'](?:CSEA Header Hero|Hero Banner|Hero Image)["\'])', rf'\g<1>{hero_src}"\g<2>', rendered, flags=re.IGNORECASE)
 
-        if logo_src and logo_src != default_logo_src:
-            rendered = rendered.replace(default_logo_src, logo_src)
+        if logo_src:
             rendered = rendered.replace("/csea_logo.png", logo_src)
+            rendered = rendered.replace("/email_logo.png", logo_src)
             rendered = rendered.replace("http://localhost:3000/csea_logo.png", logo_src)
             rendered = rendered.replace("http://localhost:3000/email_logo.png", logo_src)
+            if logo_src != default_logo_src:
+                rendered = rendered.replace(default_logo_src, logo_src)
             rendered = re.sub(r'(<img[^>]*?alt=["\'](?:CSEA Logo|Logo)["\'][^>]*?src=["\'])[^"\']+["\']', rf'\g<1>{logo_src}"', rendered, flags=re.IGNORECASE)
             rendered = re.sub(r'(<img[^>]*?src=["\'])[^"\']+["\']([^>]*?alt=["\'](?:CSEA Logo|Logo)["\'])', rf'\g<1>{logo_src}"\g<2>', rendered, flags=re.IGNORECASE)
 

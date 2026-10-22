@@ -527,7 +527,9 @@ export default function UnifiedCseaCopterCodeApp() {
 
     let rendered = rawHtml;
 
-    // When viewing for a specific certificate from the certificates table/generation section, substitute real replaced values
+    // Only substitute student and event variables if previewing an actual student's certificate from the table.
+    // When editing/viewing the template in the profile section, tokens like {student_name}, {Event}, {event_date}
+    // remain identical to the code.
     if (emailCodeModal?.cert) {
       const sName = emailCodeModal.cert.studentName || 'Participant';
       const eName = emailCodeModal.cert.eventName || 'Technical Event';
@@ -569,10 +571,18 @@ export default function UnifiedCseaCopterCodeApp() {
       }
     }
 
-    // Dynamic replacement of hero_src and logo_src so actual images render in preview
+    // Dynamic replacement of hero_src, EMAIL_HERO_IMAGE_URL, logo_src, EMAIL_LOGO_IMAGE_URL so actual images render in preview
     const imageReplacements: Record<string, string> = {
       'hero_src': heroSrc,
-      'logo_src': logoSrc
+      'EMAIL_HERO_IMAGE_URL': heroSrc,
+      'hero_img_url': heroSrc,
+      'hero_url': heroSrc,
+      'HERO_URL': heroSrc,
+      'logo_src': logoSrc,
+      'EMAIL_LOGO_IMAGE_URL': logoSrc,
+      'logo_img_url': logoSrc,
+      'logo_url': logoSrc,
+      'LOGO_URL': logoSrc,
     };
     for (const [k, v] of Object.entries(imageReplacements)) {
       rendered = rendered.split(`{${k}}`).join(v);
@@ -586,6 +596,7 @@ export default function UnifiedCseaCopterCodeApp() {
         rendered = rendered.split(defaultHeroUrl).join(heroSrc);
       }
       rendered = rendered.split('/hero.png').join(heroSrc);
+      rendered = rendered.split('/email_hero.png').join(heroSrc);
       rendered = rendered.split('http://localhost:3000/hero.png').join(heroSrc);
       rendered = rendered.split('http://localhost:3000/email_hero.png').join(heroSrc);
 
@@ -606,6 +617,7 @@ export default function UnifiedCseaCopterCodeApp() {
         rendered = rendered.split(defaultLogoUrl).join(logoSrc);
       }
       rendered = rendered.split('/csea_logo.png').join(logoSrc);
+      rendered = rendered.split('/email_logo.png').join(logoSrc);
       rendered = rendered.split('http://localhost:3000/csea_logo.png').join(logoSrc);
       rendered = rendered.split('http://localhost:3000/email_logo.png').join(logoSrc);
 
@@ -3648,13 +3660,13 @@ export default function UnifiedCseaCopterCodeApp() {
                     </span>
                   )}
 
-                  <div className="flex items-center space-x-1.5 shrink-0">
+                  <div className="flex items-center space-x-1.5 shrink-0 flex-wrap gap-y-1">
                     <span className="font-bold text-slate-700">Tokens:</span>
                     <code className="bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[10px]">{"{student_name}"}</code>
                     <code className="bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[10px]">{"{event_name}"}</code>
                     <code className="bg-slate-200/80 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[10px]">{"{event_date}"}</code>
-                    <code className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono text-[10px]">{"{hero_src}"}</code>
-                    <code className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono text-[10px]">{"{logo_src}"}</code>
+                    <code className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono text-[10px]" title="Supports {hero_src} or {EMAIL_HERO_IMAGE_URL}">{"{hero_src}"}</code>
+                    <code className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-mono text-[10px]" title="Supports {logo_src} or {EMAIL_LOGO_IMAGE_URL}">{"{logo_src}"}</code>
                   </div>
                 </div>
               </div>
