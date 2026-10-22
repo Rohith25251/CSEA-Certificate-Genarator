@@ -74,8 +74,8 @@ import InvitationTab from './invitations/InvitationTab';
 
 const PYTHON_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-const extractStudentEmail = (row: any, rollNo: string = ''): string => {
-  if (!row) return rollNo ? `${rollNo.toLowerCase()}@kongu.edu` : '';
+const extractStudentEmail = (row: any): string => {
+  if (!row) return '';
   for (const key of Object.keys(row)) {
     const cleanKey = key.trim().toLowerCase();
     const val = String(row[key] || '').trim();
@@ -89,7 +89,7 @@ const extractStudentEmail = (row: any, rollNo: string = ''): string => {
       return val;
     }
   }
-  return rollNo ? `${rollNo.toLowerCase()}@kongu.edu` : '';
+  return '';
 };
 
 const extractRowTitle = (row: any, fallback: string = ''): string => {
@@ -1296,9 +1296,9 @@ export default function UnifiedCseaCopterCodeApp() {
     try {
 
       const certsFromExcel: Certificate[] = excelResult.rows.map((row, idx) => {
-        const rollNo = extractStudentId(row);
+        const rollNo = extractStudentId(row, idx);
         const name = String(row['Name'] || row['name'] || 'Participant').trim();
-        const email = extractStudentEmail(row, rollNo);
+        const email = extractStudentEmail(row);
         const code = generateCertificateId('WRK', idx + 1);
         const college = String(row['College Name'] || row['College'] || 'Kongu Engineering College').trim() || 'Kongu Engineering College';
         const rowEvent = extractRowEventName(row, primaryExcelEvent);
@@ -1343,9 +1343,9 @@ export default function UnifiedCseaCopterCodeApp() {
       });
 
       const studentsFromExcel: Student[] = excelResult.rows.map((row, idx) => {
-        const rollNo = extractStudentId(row);
+        const rollNo = extractStudentId(row, idx);
         const name = String(row['Name'] || row['name'] || 'Participant').trim();
-        const email = extractStudentEmail(row, rollNo);
+        const email = extractStudentEmail(row);
         const section = String(row['Section'] || row['section'] || '').trim();
         const phone = extractRowPhone(row, String(row['Mobile number '] || row['phone'] || '').trim());
         const college = String(row['College Name'] || row['College'] || 'Kongu Engineering College').trim() || 'Kongu Engineering College';
@@ -1563,18 +1563,28 @@ export default function UnifiedCseaCopterCodeApp() {
     try {
       const zip = new JSZip();
       const folder = zip.folder('Certificates') || zip;
+      const usedFilenames = new Set<string>();
 
       for (let i = 0; i < targetCerts.length; i++) {
         const c = targetCerts[i];
-        const safeName = c.studentName.trim().replace(/\s+/g, '_');
+        const safeName = c.studentName.trim().replace(/[/\\?%*:|"<>]/g, '').replace(/\s+/g, '_') || 'Certificate';
+        
+        // Zipped PDF filename contains ONLY the participant's name (no roll number)
+        let archiveFilename = `${safeName}.pdf`;
+        let counter = 1;
+        while (usedFilenames.has(archiveFilename)) {
+          counter++;
+          archiveFilename = `${safeName}_(${counter}).pdf`;
+        }
+        usedFilenames.add(archiveFilename);
+
         const pdfFilename = `Cert_${safeName}.pdf`;
-        const downloadUrl = `${PYTHON_API_URL}/api/download-pdf/${encodeURIComponent(pdfFilename)}?mode=inline&t=${Date.now()}`;
+        const downloadUrl = `${PYTHON_API_URL}/api/download-pdf/${encodeURIComponent(pdfFilename)}?cert_id=${encodeURIComponent(c.id || '')}&event_id=${encodeURIComponent(c.eventId || '')}&mode=inline&t=${Date.now()}`;
 
         try {
           const res = await fetch(downloadUrl);
           if (res.ok) {
             const blob = await res.blob();
-            const archiveFilename = `Cert_${c.studentId || (i + 1)}_${safeName}.pdf`;
             folder.file(archiveFilename, blob);
           }
         } catch (fetchErr) {
@@ -2271,9 +2281,9 @@ export default function UnifiedCseaCopterCodeApp() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {excelResult?.rows.map((row, idx) => {
-                          const rNo = extractStudentId(row);
+                          const rNo = extractStudentId(row, idx);
                           const name = String(row['Name'] || row['name'] || 'Participant').trim();
-                          const email = extractStudentEmail(row, rNo);
+                          const email = extractStudentEmail(row);
                           const sec = String(row['Section'] || row['section'] || '').trim();
                           const col = String(row['College Name'] || row['College'] || 'Kongu Engineering College').trim();
                           const year = extractRowYear(row, String(row['Year of Study'] || row['Year'] || row['year'] || '-').trim()) || '-';

@@ -72,12 +72,8 @@ def upsert_students_to_db(students_list):
             college = str(s.get('college_name') or 'Kongu Engineering College').strip()
 
             if not reg:
-                # If roll number is missing, create a deterministic or unique fallback
-                if email:
-                    clean_prefix = re.sub(r'[^a-zA-Z0-9]', '', email.split('@')[0])
-                    reg = f"TEMP-{clean_prefix.upper()}"
-                else:
-                    reg = f"TEMP-{idx+1:04d}"
+                # If roll number is missing, create a deterministic temp fallback
+                reg = f"temp{idx + 1}"
 
             reg_key = reg.lower()
             if reg_key in student_dict:

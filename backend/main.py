@@ -80,9 +80,9 @@ os.makedirs(OUTPUT_CERTS_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_BASE_DIR, exist_ok=True)
 
 def extract_roll_no_from_row(row: dict, idx: int = 0) -> str:
-    """Extracts student roll number / register number from Excel row handling all column alias variations."""
+    """Extracts student roll number / register number from Excel row. Generates temp<number> if missing."""
     if not row:
-        return f"25CSR{100 + idx}"
+        return f"temp{idx + 1}"
     keys = [
         'RollNumber', 'Roll Number ', 'Roll Number', 'Roll No', 'RollNo', 
         'Roll_Number', 'Roll_No', 'Register No', 'Register_No', 'Reg No', 
@@ -96,12 +96,12 @@ def extract_roll_no_from_row(row: dict, idx: int = 0) -> str:
         if k and v and re.search(r'(roll|reg|student.*id)', str(k), re.I) and str(v).strip():
             return str(v).strip()
 
-    return f"25CSR{100 + idx}"
+    return f"temp{idx + 1}"
 
-def extract_email_from_row(r: dict, roll_no: str) -> str:
-    """Extracts email address from Excel row dynamically searching all email/mail header variations."""
+def extract_email_from_row(r: dict, roll_no: str = "") -> str:
+    """Extracts email address from Excel row. Leaves as empty string if not provided in Excel."""
     if not r:
-        return f"{roll_no.lower()}@kongu.edu"
+        return ""
     
     # 1. Search for any key containing 'mail' or 'email'
     for k, v in r.items():
@@ -118,7 +118,7 @@ def extract_email_from_row(r: dict, roll_no: str) -> str:
         if '@' in clean_v and '.' in clean_v:
             return clean_v
 
-    return f"{roll_no.lower()}@kongu.edu"
+    return ""
 
 @app.get("/")
 @app.get("/api")

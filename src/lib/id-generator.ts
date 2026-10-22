@@ -6,7 +6,7 @@ export function generateCertificateId(eventCategory: string = 'ML', index: numbe
   return `CSEA-${year}-${categoryCode}-${seq}${randomSuffix}`;
 }
 
-export function extractStudentId(row: Record<string, any>): string {
+export function extractStudentId(row: Record<string, any>, idx: number = 0): string {
   // Common column names for student id / roll no
   const candidateKeys = ['RollNumber', 'Roll Number ', 'Roll Number', 'Register No', 'Reg No', 'Student ID', 'Roll No', 'RollNo', 'Roll_Number', 'Roll_No', 'Register_No'];
   for (const key of candidateKeys) {
@@ -17,10 +17,10 @@ export function extractStudentId(row: Record<string, any>): string {
 
   // Search any key containing 'roll' or 'reg'
   for (const [k, v] of Object.entries(row)) {
-    if (/(roll|reg|id)/i.test(k) && v) {
+    if (/(roll|reg|id)/i.test(k) && v && String(v).trim() !== '') {
       return String(v).trim();
     }
   }
 
-  return `STU-${Math.floor(100000 + Math.random() * 900000)}`;
+  return `temp${idx + 1}`;
 }
