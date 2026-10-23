@@ -447,7 +447,9 @@ export async function saveCertificatesToSupabase(certs: Certificate[], dbStudent
 export async function uploadTemplateToSupabaseStorage(file: File, eventId: string) {
   if (!file || !eventId) return { success: false, error: 'File or Event ID missing' };
   try {
-    const filePath = `${eventId}/${file.name}`;
+    const safeEventId = eventId.replace(/\s*[/\\:]+\s*/g, '_').replace(/[<>"|?*\x00-\x1f]/g, '_').trim().replace(/^\.+|\.+$/g, '');
+    const safeFileName = file.name.replace(/\s*[/\\:]+\s*/g, '_').replace(/[<>"|?*\x00-\x1f]/g, '_').trim().replace(/^\.+|\.+$/g, '');
+    const filePath = `${safeEventId || 'default'}/${safeFileName || 'template.pptx'}`;
     
     // Upload file to Supabase Storage bucket 'templates'
     const { data, error } = await supabase.storage

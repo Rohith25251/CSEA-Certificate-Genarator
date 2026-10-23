@@ -252,9 +252,23 @@ def download_latest_template_from_supabase(event_id: str = None) -> str:
     if not supabase:
         return ""
     
+    import re
+
+    def _sanitize(name: str) -> str:
+        if not name:
+            return "default"
+        s = re.sub(r'\s*[/\\:]+\s*', '_', str(name))
+        s = re.sub(r'[<>\"|?*\x00-\x1f]', '_', s)
+        s = s.strip().strip('.').strip()
+        return s or "default"
+
     target_folders = []
     if event_id and str(event_id).strip():
-        target_folders.append(str(event_id).strip())
+        clean_eid = str(event_id).strip()
+        safe_eid = _sanitize(clean_eid)
+        target_folders.append(safe_eid)
+        if clean_eid != safe_eid:
+            target_folders.append(clean_eid)
     else:
         target_folders.append("")  # Root folder ONLY if event_id is not specified
 
@@ -279,7 +293,8 @@ def download_latest_template_from_supabase(event_id: str = None) -> str:
 
                 content = supabase.storage.from_('templates').download(storage_path)
                 if content:
-                    save_name = f"{folder}_template.pptx" if folder else "latest_template.pptx"
+                    safe_slug = _sanitize(folder) if folder else "latest"
+                    save_name = f"{safe_slug}_template.pptx"
                     save_path = os.path.join(save_dir, save_name)
                     with open(save_path, 'wb') as f:
                         f.write(content)

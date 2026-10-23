@@ -54,32 +54,64 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 SAVED_PPTX_PATH = os.path.join(UPLOAD_DIR, 'latest_template.pptx')
 
+def sanitize_folder_name(name: str) -> str:
+    """
+    Sanitizes an event_id or file name so it is 100% safe to use as a directory
+    or filename on Windows, Linux, and Cloud environments.
+    Replaces / \\ : < > " | ? * and control chars with underscores, strips trailing dots & spaces.
+    """
+    if not name:
+        return "default"
+    # Replace slashes, backslashes, and colons (and any surrounding spaces) with underscore
+    s = re.sub(r'\s*[/\\:]+\s*', '_', str(name))
+    # Replace other characters illegal on Windows: < > " | ? * and control chars
+    s = re.sub(r'[<>\"|?*\x00-\x1f]', '_', s)
+    # Strip leading/trailing spaces and dots (forbidden by Windows Win32 API)
+    s = s.strip().strip('.').strip()
+    return s or "default"
+
 def get_active_pptx_template_path(event_id: str = None) -> str:
     """Returns path to active PPTX template, prioritizing local event_templates/{event_id}/ folder, then latest_template.pptx, then Supabase Storage."""
     # 1. First check local event_templates/{event_id}/
     if event_id:
         clean_eid = str(event_id).strip()
-        candidates = [
+        safe_eid = sanitize_folder_name(clean_eid)
+        raw_candidates = [
+            safe_eid,
             clean_eid,
             clean_eid.replace(' ', ''),
             clean_eid.replace(' ', '-'),
-            clean_eid.replace('-', ' ').strip()
+            clean_eid.replace('-', ' ').strip(),
+            safe_eid.replace(' ', ''),
+            safe_eid.replace(' ', '-')
         ]
+        candidates = []
+        for c in raw_candidates:
+            if c and c not in candidates:
+                candidates.append(c)
+
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "event_templates"))
         for cand in candidates:
-            cand_dir = os.path.join(base_dir, cand)
-            if os.path.exists(cand_dir):
-                pptxs = [os.path.join(cand_dir, f) for f in os.listdir(cand_dir) if f.endswith('.pptx')]
-                if pptxs:
-                    pptxs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-                    return pptxs[0]
+            try:
+                cand_folder = sanitize_folder_name(cand)
+                cand_dir = os.path.join(base_dir, cand_folder)
+                if os.path.exists(cand_dir):
+                    pptxs = [os.path.join(cand_dir, f) for f in os.listdir(cand_dir) if f.endswith(('.pptx', '.ppt'))]
+                    if pptxs:
+                        pptxs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                        return pptxs[0]
+            except Exception:
+                pass
 
         # 2. Check Supabase Storage under the specific event_id folder
         from supabase_client import download_latest_template_from_supabase
         for cand in candidates:
-            sp_path = download_latest_template_from_supabase(cand)
-            if sp_path and os.path.exists(sp_path):
-                return sp_path
+            try:
+                sp_path = download_latest_template_from_supabase(cand)
+                if sp_path and os.path.exists(sp_path):
+                    return sp_path
+            except Exception:
+                pass
 
     # 3. Check latest uploaded template file from current session
     if os.path.exists(SAVED_PPTX_PATH):

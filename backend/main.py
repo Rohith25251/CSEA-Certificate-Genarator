@@ -27,6 +27,7 @@ from generator import (
     get_active_pptx_template_path,
     extract_row_event_name_from_dict,
     extract_row_title_from_dict,
+    sanitize_folder_name,
     SAVED_PPTX_PATH,
     DEFAULT_CERTIFICATE_HTML
 )
@@ -184,9 +185,12 @@ async def register_event(
     file: Optional[UploadFile] = File(None)
 ):
     """Registers ONLY the event in Supabase events table and saves template in event_id subfolder & Supabase Storage."""
+    clean_eid = str(event_id).strip()
+    safe_eid = sanitize_folder_name(clean_eid)
+
     # 1. Save Event to Supabase DB (events table has event_id, event_category, event_date)
     upsert_event_to_db({
-        "event_id": str(event_id).strip(),
+        "event_id": clean_eid,
         "event_category": event_category,
         "event_date": event_date
     })
@@ -194,7 +198,7 @@ async def register_event(
     # 2. Save Template File into Event-ID subfolder and upload to Supabase Storage
     template_saved_path = None
     if file:
-        event_folder = os.path.join(TEMPLATES_BASE_DIR, event_id)
+        event_folder = os.path.join(TEMPLATES_BASE_DIR, safe_eid)
         os.makedirs(event_folder, exist_ok=True)
         # Clean older templates in this folder so only the latest uploaded template is used
         for f in os.listdir(event_folder):
@@ -204,7 +208,10 @@ async def register_event(
                 except Exception:
                     pass
 
-        template_saved_path = os.path.join(event_folder, file.filename or "template.pptx")
+        orig_name = file.filename or "template.pptx"
+        file_stem, file_ext = os.path.splitext(orig_name)
+        safe_file_name = f"{sanitize_folder_name(file_stem)}{file_ext or '.pptx'}"
+        template_saved_path = os.path.join(event_folder, safe_file_name)
         contents = await file.read()
         with open(template_saved_path, "wb") as f:
             f.write(contents)
@@ -215,7 +222,7 @@ async def register_event(
         # Upload directly to Supabase Storage bucket 'templates'
         if supabase:
             try:
-                storage_path = f"{event_id}/{file.filename or 'template.pptx'}"
+                storage_path = f"{safe_eid}/{safe_file_name}"
                 supabase.storage.from_("templates").upload(
                     storage_path,
                     contents,
@@ -227,8 +234,8 @@ async def register_event(
 
     return {
         "status": "success",
-        "event_id": event_id,
-        "template_folder": os.path.join("event_templates", event_id),
+        "event_id": clean_eid,
+        "template_folder": os.path.join("event_templates", safe_eid),
         "template_saved": bool(template_saved_path)
     }
 
